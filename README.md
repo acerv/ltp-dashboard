@@ -61,7 +61,7 @@ cargo run -- --web --port 8080
 
 Then open http://localhost:3030 in your browser.
 
-## Configuration
+## Configuration (optional)
 
 Create `config.toml` in the project directory or
 `~/.config/ltp-dashboard/config.toml`:
