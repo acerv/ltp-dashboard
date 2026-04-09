@@ -380,7 +380,7 @@ pub fn score_patch(patch: &RawPatch) -> ScoredPatch {
     ScoredPatch {
         id: patch.id,
         name: name.clone(),
-        submitter: patch.submitter.name.clone(),
+        submitter: patch.submitter.name.clone().unwrap_or_default(),
         date: patch.date.clone(),
         days,
         state: state.clone(),

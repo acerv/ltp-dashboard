@@ -29,7 +29,7 @@ const STATES: &[&str] = &["new", "under-review", "11"];
 #[derive(Debug, Clone, Deserialize)]
 #[allow(dead_code)]
 pub struct Submitter {
-    pub name: String,
+    pub name: Option<String>,
     pub email: String,
 }
 
