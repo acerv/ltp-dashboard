@@ -132,6 +132,7 @@ Options:
   - 🟣 **Under Review**: Currently being reviewed
   - 🟢 **Reviewed-by**: Has reviewer approval
   - 🔵 **Acked-by**: Has maintainer acknowledgment
+- **Superseded**: Older version exists in the list
 - **Green Highlight**: Patches with `Reviewed-by` or `Acked-by`
 - **Auto-Refresh**: Updates every 5 minutes
 - **Gzip Compression**: Faster page loads
@@ -148,6 +149,8 @@ Filter out cover letters
 Score each patch
      ↓
 Sort by score (descending)
+     ↓
+Mark superseded patches
      ↓
 Group by tier
      ↓
