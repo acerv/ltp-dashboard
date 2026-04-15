@@ -138,9 +138,14 @@ pub fn print_queue(
                         "{YELLOW}{:>W_CI$}{RESET}",
                         format!("{}/{}", p.checks_passed, p.checks_total)
                     )
-                } else {
+                } else if p.checks_failed > 0 {
                     format!(
                         "{RED}{:>W_CI$}{RESET}",
+                        format!("{}/{}", p.checks_passed, p.checks_total)
+                    )
+                } else {
+                    format!(
+                        "{YELLOW}{:>W_CI$}{RESET}",
                         format!("{}/{}", p.checks_passed, p.checks_total)
                     )
                 };

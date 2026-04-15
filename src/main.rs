@@ -112,8 +112,9 @@ async fn fetch_and_score(
                 p.reviewed += r;
                 p.acked += a;
             }
-            if let Some(&(passed, total)) = checks.get(&p.id) {
+            if let Some(&(passed, failed, total)) = checks.get(&p.id) {
                 p.checks_passed = passed;
+                p.checks_failed = failed;
                 p.checks_total = total;
             }
         }

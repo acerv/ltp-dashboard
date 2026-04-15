@@ -134,6 +134,7 @@ const TEMPLATE: &str = r#"<!DOCTYPE html>
     .patch-table .col-ci     { text-align: center; }
     .ci-pass { color: #34d399; font-weight: 700; font-size: 0.8rem; }
     .ci-fail { color: #f87171; font-weight: 700; font-size: 0.8rem; }
+    .ci-warn { color: #fbbf24; font-weight: 700; font-size: 0.8rem; }
     .ci-none { color: #444; font-size: 0.8rem; }
 
     /* Score colors by tier */
@@ -301,7 +302,8 @@ const TEMPLATE: &str = r#"<!DOCTYPE html>
         <td class="col-ci">
           {% if p.checks_total == 0 %}<span class="ci-none">—</span>
           {% elif p.checks_passed == p.checks_total %}<span class="ci-pass">{{ p.checks_passed }}/{{ p.checks_total }}</span>
-          {% else %}<span class="ci-fail">{{ p.checks_passed }}/{{ p.checks_total }}</span>
+          {% elif p.checks_failed > 0 %}<span class="ci-fail">{{ p.checks_passed }}/{{ p.checks_total }}</span>
+          {% else %}<span class="ci-warn">{{ p.checks_passed }}/{{ p.checks_total }}</span>
           {% endif %}
         </td>
         {% endif %}
@@ -399,6 +401,7 @@ pub fn render_index(data: &TemplateData<'_>) -> Result<String, minijinja::Error>
                         url => &p.url,
                         reasons => p.reasons.join(" · "),
                         checks_passed => p.checks_passed,
+                        checks_failed => p.checks_failed,
                         checks_total => p.checks_total,
                     }
                 })

@@ -279,8 +279,8 @@ struct ChecksResponse {
 }
 
 /// Fetch CI check results for all patches in parallel.
-/// Returns a map of patch_id → (passed, total).
-pub async fn fetch_all_checks(client: &Client, patch_ids: &[u64]) -> HashMap<u64, (u32, u32)> {
+/// Returns a map of patch_id → (passed, failed, total).
+pub async fn fetch_all_checks(client: &Client, patch_ids: &[u64]) -> HashMap<u64, (u32, u32, u32)> {
     let handles: Vec<_> = patch_ids
         .iter()
         .map(|&id| {
@@ -305,7 +305,7 @@ pub async fn fetch_all_checks(client: &Client, patch_ids: &[u64]) -> HashMap<u64
     out
 }
 
-async fn fetch_checks_for_patch(client: &Client, patch_id: u64) -> anyhow::Result<(u32, u32)> {
+async fn fetch_checks_for_patch(client: &Client, patch_id: u64) -> anyhow::Result<(u32, u32, u32)> {
     let url = format!("{PATCHWORK_BASE}/patches/{patch_id}/checks/");
     let text = client
         .get(&url)
@@ -323,5 +323,6 @@ async fn fetch_checks_for_patch(client: &Client, patch_id: u64) -> anyhow::Resul
 
     let total = results.len() as u32;
     let passed = results.iter().filter(|c| c.state == "success").count() as u32;
-    Ok((passed, total))
+    let failed = results.iter().filter(|c| c.state == "fail").count() as u32;
+    Ok((passed, failed, total))
 }
