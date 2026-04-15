@@ -18,6 +18,7 @@
 
 use chrono::{DateTime, Local, Utc};
 use regex::Regex;
+use std::collections::HashMap;
 use std::sync::OnceLock;
 
 use crate::patchwork::RawPatch;
@@ -66,6 +67,11 @@ fn lib_subject_re() -> &'static Regex {
 fn include_subject_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
     RE.get_or_init(|| Regex::new(r"(?i)\b(lapi|include/|syscalls\.h)\b").unwrap())
+}
+
+fn subject_tag_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| Regex::new(r"^\s*\[.*?\]\s*").unwrap())
 }
 
 // ---------------------------------------------------------------------------
@@ -215,11 +221,15 @@ pub struct ScoredPatch {
     pub url: String,
     pub tier: &'static str,
     pub tier_label: &'static str,
+    pub superseded: bool,
 }
 
 impl ScoredPatch {
     pub fn notes(&self) -> String {
         let mut parts = Vec::new();
+        if self.superseded {
+            parts.push("SUPERSEDED".to_string());
+        }
         if self.reviewed > 0 {
             parts.push("Reviewed-by".to_string());
         }
@@ -401,5 +411,38 @@ pub fn score_patch(patch: &RawPatch) -> ScoredPatch {
         url,
         tier,
         tier_label,
+        superseded: false,
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Superseded detection
+// ---------------------------------------------------------------------------
+
+/// Strip the leading `[PATCH ...]` tag from a subject to get the bare title.
+pub fn base_subject(name: &str) -> String {
+    subject_tag_re().replace(name, "").trim().to_lowercase()
+}
+
+/// Mark patches that have a newer version from the same submitter as superseded.
+pub fn mark_superseded(patches: &mut [ScoredPatch]) {
+    // First pass: find the max version for each (submitter, base_subject) group.
+    let mut max_version: HashMap<(String, String), u32> = HashMap::new();
+    for p in patches.iter() {
+        let key = (p.submitter.clone(), base_subject(&p.name));
+        let entry = max_version.entry(key).or_insert(0);
+        if p.version > *entry {
+            *entry = p.version;
+        }
+    }
+
+    // Second pass: flag patches whose version is below the group max.
+    for p in patches.iter_mut() {
+        let key = (p.submitter.clone(), base_subject(&p.name));
+        if let Some(&max_v) = max_version.get(&key) {
+            if max_v > 1 && p.version < max_v {
+                p.superseded = true;
+            }
+        }
     }
 }

@@ -144,6 +144,7 @@ const TEMPLATE: &str = r#"<!DOCTYPE html>
     .tier-P5 .col-score { color: #9ca3af; }
 
     tr.has-review td { background: rgba(20, 83, 45, 0.18); }
+    tr.is-superseded td { background: rgba(127, 29, 29, 0.22); }
     tr:hover td { background: rgba(255,255,255,0.04) !important; }
 
     /* Inline tier badge in table */
@@ -188,6 +189,7 @@ const TEMPLATE: &str = r#"<!DOCTYPE html>
     .sbadge-reviewed { background: #14532d; color: #86efac; }
     .sbadge-acked    { background: #134e4a; color: #5eead4; }
     .sbadge-review   { background: #312e81; color: #a5b4fc; }
+    .sbadge-superseded { background: #7f1d1d; color: #fca5a5; }
 
     /* Empty state */
     .empty-row td {
@@ -289,7 +291,7 @@ const TEMPLATE: &str = r#"<!DOCTYPE html>
       </tr>
       {% else %}
       {% for p in tier.patches %}
-      <tr class="tier-{{ p.tier }}{% if p.reviewed > 0 or p.acked > 0 %} has-review{% endif %}">
+      <tr class="tier-{{ p.tier }}{% if p.reviewed > 0 or p.acked > 0 %} has-review{% endif %}{% if p.superseded %} is-superseded{% endif %}">
         <td class="col-num">{{ p.num }}</td>
         <td class="col-score">{{ p.score }}</td>
         <td class="col-tier"><span class="badge badge-{{ p.tier }}">{{ p.tier }}</span></td>
@@ -311,6 +313,7 @@ const TEMPLATE: &str = r#"<!DOCTYPE html>
           {% if p.state == "under-review" %}<span class="sbadge sbadge-review">Under Review</span>{% endif %}
           {% if p.reviewed > 0 %}<span class="sbadge sbadge-reviewed">Reviewed-by</span>{% endif %}
           {% if p.acked > 0 %}<span class="sbadge sbadge-acked">Acked-by</span>{% endif %}
+          {% if p.superseded %}<span class="sbadge sbadge-superseded">Superseded</span>{% endif %}
           <div class="reasons">{{ p.reasons }}</div>
         </td>
       </tr>
@@ -332,6 +335,8 @@ const TEMPLATE: &str = r#"<!DOCTYPE html>
     <span class="summary-value">{{ rfc_count }}</span>
     <span class="summary-label">With Reviewed-by (ready)</span>
     <span class="summary-value">{{ reviewed_count }}</span>
+    <span class="summary-label">Superseded patches</span>
+    <span class="summary-value {% if superseded_count > 0 %}warn{% endif %}">{{ superseded_count }}</span>
   </div>
   <p class="refresh-note">Page auto-refreshes every 5 minutes.</p>
 </div>
@@ -355,6 +360,7 @@ pub fn render_index(data: &TemplateData<'_>) -> Result<String, minijinja::Error>
     let stale_count = data.patches.iter().filter(|p| p.days > 60).count();
     let rfc_count = data.patches.iter().filter(|p| p.rfc).count();
     let reviewed_count = data.patches.iter().filter(|p| p.reviewed >= 1).count();
+    let superseded_count = data.patches.iter().filter(|p| p.superseded).count();
 
     // Build per-tier groups in canonical order
     let tier_order: &[(&str, &str)] = &[
@@ -388,6 +394,7 @@ pub fn render_index(data: &TemplateData<'_>) -> Result<String, minijinja::Error>
                         series_size => p.series_size,
                         reviewed => p.reviewed,
                         acked => p.acked,
+                        superseded => p.superseded,
                         name => &p.name,
                         url => &p.url,
                         reasons => p.reasons.join(" · "),
@@ -413,6 +420,7 @@ pub fn render_index(data: &TemplateData<'_>) -> Result<String, minijinja::Error>
         stale_count,
         rfc_count,
         reviewed_count,
+        superseded_count,
         generated_at => &data.generated_at,
         show_checks => data.show_checks,
         tiers,

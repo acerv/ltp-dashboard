@@ -64,6 +64,7 @@ pub fn print_queue(
     let stale_count = patches.iter().filter(|p| p.days > 60).count();
     let rfc_count = patches.iter().filter(|p| p.rfc).count();
     let waiting_count = patches.iter().filter(|p| p.reviewed >= 1).count();
+    let superseded_count = patches.iter().filter(|p| p.superseded).count();
 
     let rule = "─".repeat(80);
 
@@ -175,5 +176,10 @@ pub fn print_queue(
     println!("  Patches > 60 days old:             {BOLD}{stale_count}{RESET}{stale_note}");
     println!("  RFC patches:                       {BOLD}{rfc_count}{RESET}");
     println!("  Patches with Reviewed-by (ready):  {BOLD}{waiting_count}{RESET}");
+    if superseded_count > 0 {
+        println!("  Superseded patches:                {BOLD}{superseded_count}{RESET}  {RED}← older versions{RESET}");
+    } else {
+        println!("  Superseded patches:                {BOLD}{superseded_count}{RESET}");
+    }
     println!();
 }
