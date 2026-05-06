@@ -122,6 +122,20 @@ pub fn score_series(size: u32) -> i32 {
     }
 }
 
+pub fn score_diff_lines(lines: u32) -> i32 {
+    if lines == 0 {
+        0
+    } else if lines <= 10 {
+        40
+    } else if lines <= 30 {
+        25
+    } else if lines <= 100 {
+        10
+    } else {
+        0
+    }
+}
+
 pub fn score_sob(count: u32) -> i32 {
     match count {
         0 | 1 => 0,
@@ -214,6 +228,7 @@ pub struct ScoredPatch {
     pub new_test: bool,
     pub sob_count: u32,
     pub lib_pts: i32,
+    pub diff_lines: u32,
     pub checks_passed: u32,
     pub checks_failed: u32,
     pub checks_total: u32,
@@ -255,6 +270,9 @@ impl ScoredPatch {
         }
         if self.series_size > 5 {
             parts.push(format!("SERIES {}", self.series_size));
+        }
+        if self.diff_lines > 0 && self.diff_lines <= 50 {
+            parts.push(format!("{}L", self.diff_lines));
         }
         if parts.is_empty() {
             "—".to_string()
@@ -405,6 +423,7 @@ pub fn score_patch(patch: &RawPatch) -> ScoredPatch {
         new_test,
         sob_count,
         lib_pts,
+        diff_lines: 0,
         checks_passed: 0,
         checks_failed: 0,
         checks_total: 0,

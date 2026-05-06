@@ -265,6 +265,66 @@ async fn fetch_comment_tags_for_patch(
 }
 
 // ---------------------------------------------------------------------------
+// Diff size
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Deserialize)]
+struct PatchDetail {
+    diff: Option<String>,
+}
+
+/// Fetch diff sizes (changed lines) for all patches in parallel.
+pub async fn fetch_all_diff_sizes(client: &Client, patch_ids: &[u64]) -> HashMap<u64, u32> {
+    let handles: Vec<_> = patch_ids
+        .iter()
+        .map(|&id| {
+            let client = client.clone();
+            tokio::spawn(async move {
+                let result = fetch_diff_lines_for_patch(&client, id).await;
+                (id, result)
+            })
+        })
+        .collect();
+
+    let mut out = HashMap::with_capacity(patch_ids.len());
+    for handle in handles {
+        match handle.await {
+            Ok((id, Ok(lines))) => {
+                out.insert(id, lines);
+            }
+            Ok((id, Err(e))) => eprintln!("Warning: diff fetch failed for patch {id}: {e}"),
+            Err(e) => eprintln!("Warning: diff task panicked: {e}"),
+        }
+    }
+    out
+}
+
+async fn fetch_diff_lines_for_patch(client: &Client, patch_id: u64) -> anyhow::Result<u32> {
+    let url = format!("{PATCHWORK_BASE}/patches/{patch_id}/");
+    let text = client
+        .get(&url)
+        .header("Accept", "application/json")
+        .send()
+        .await?
+        .text()
+        .await?;
+
+    let detail: PatchDetail = serde_json::from_str(&text)?;
+    let lines = detail.diff.as_deref().map(count_diff_lines).unwrap_or(0);
+    Ok(lines)
+}
+
+fn count_diff_lines(diff: &str) -> u32 {
+    diff.lines()
+        .filter(|l| {
+            (l.starts_with('+') || l.starts_with('-'))
+                && !l.starts_with("+++")
+                && !l.starts_with("---")
+        })
+        .count() as u32
+}
+
+// ---------------------------------------------------------------------------
 // CI checks
 // ---------------------------------------------------------------------------
 

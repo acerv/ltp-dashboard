@@ -191,6 +191,7 @@ const TEMPLATE: &str = r#"<!DOCTYPE html>
     .sbadge-acked    { background: #134e4a; color: #5eead4; }
     .sbadge-review   { background: #312e81; color: #a5b4fc; }
     .sbadge-superseded { background: #7f1d1d; color: #fca5a5; }
+    .sbadge-smalldiff  { background: #064e3b; color: #6ee7b7; }
 
     /* Empty state */
     .empty-row td {
@@ -316,6 +317,7 @@ const TEMPLATE: &str = r#"<!DOCTYPE html>
           {% if p.reviewed > 0 %}<span class="sbadge sbadge-reviewed">Reviewed-by</span>{% endif %}
           {% if p.acked > 0 %}<span class="sbadge sbadge-acked">Acked-by</span>{% endif %}
           {% if p.superseded %}<span class="sbadge sbadge-superseded">Superseded</span>{% endif %}
+          {% if p.diff_lines > 0 and p.diff_lines <= 50 %}<span class="sbadge sbadge-smalldiff">{{ p.diff_lines }} lines</span>{% endif %}
           <div class="reasons">{{ p.reasons }}</div>
         </td>
       </tr>
@@ -397,6 +399,7 @@ pub fn render_index(data: &TemplateData<'_>) -> Result<String, minijinja::Error>
                         reviewed => p.reviewed,
                         acked => p.acked,
                         superseded => p.superseded,
+                        diff_lines => p.diff_lines,
                         name => &p.name,
                         url => &p.url,
                         reasons => p.reasons.join(" · "),

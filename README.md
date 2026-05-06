@@ -112,6 +112,8 @@ Options:
   - 91-180 days: 20
   - 181-365 days: 10
   - 366+ days: 5 (stale)
+- **Diff Size** (small patches are easy to review): ≤10 lines=40,
+  ≤30 lines=25, ≤100 lines=10, >100 lines=0
 - **Series Size**: single=10, 2-5=0, 6-10=-5, 11+=-15
 - **State**: `new`=5, `under-review`=0
 - **Fix Keywords**: `fix`, `bug`, `regression`, `broken` = +10
@@ -132,6 +134,7 @@ Options:
   - 🟣 **Under Review**: Currently being reviewed
   - 🟢 **Reviewed-by**: Has reviewer approval
   - 🔵 **Acked-by**: Has maintainer acknowledgment
+  - 🟢 **N lines**: Small diff (≤50 lines changed)
 - **Superseded**: Older version exists in the list
 - **Green Highlight**: Patches with `Reviewed-by` or `Acked-by`
 - **Auto-Refresh**: Updates every 5 minutes
@@ -147,6 +150,8 @@ Parallel Fetch (states: new, under-review, needs-review-ack)
 Filter out cover letters
      ↓
 Score each patch
+     ↓
+Fetch diff sizes + comments (parallel)
      ↓
 Sort by score (descending)
      ↓
