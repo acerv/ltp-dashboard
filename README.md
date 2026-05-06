@@ -135,6 +135,7 @@ Options:
   - 🟢 **Reviewed-by**: Has reviewer approval
   - 🔵 **Acked-by**: Has maintainer acknowledgment
   - 🟢 **N lines**: Small diff (≤50 lines changed)
+  - 🟡 **N lines**: Large diff (>200 lines changed)
 - **Superseded**: Older version exists in the list
 - **Green Highlight**: Patches with `Reviewed-by` or `Acked-by`
 - **Auto-Refresh**: Updates every 5 minutes
