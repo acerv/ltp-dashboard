@@ -192,6 +192,7 @@ const TEMPLATE: &str = r#"<!DOCTYPE html>
     .sbadge-review   { background: #312e81; color: #a5b4fc; }
     .sbadge-superseded { background: #7f1d1d; color: #fca5a5; }
     .sbadge-smalldiff  { background: #064e3b; color: #6ee7b7; }
+    .sbadge-largediff  { background: #854d0e; color: #fef9c3; }
 
     /* Empty state */
     .empty-row td {
@@ -317,7 +318,7 @@ const TEMPLATE: &str = r#"<!DOCTYPE html>
           {% if p.reviewed > 0 %}<span class="sbadge sbadge-reviewed">Reviewed-by</span>{% endif %}
           {% if p.acked > 0 %}<span class="sbadge sbadge-acked">Acked-by</span>{% endif %}
           {% if p.superseded %}<span class="sbadge sbadge-superseded">Superseded</span>{% endif %}
-          {% if p.diff_lines > 200 %}<span class="sbadge sbadge-stale">{{ p.diff_lines }} lines</span>
+          {% if p.diff_lines > 200 %}<span class="sbadge sbadge-largediff">{{ p.diff_lines }} lines</span>
           {% elif p.diff_lines > 0 and p.diff_lines <= 50 %}<span class="sbadge sbadge-smalldiff">{{ p.diff_lines }} lines</span>{% endif %}
           <div class="reasons">{{ p.reasons }}</div>
         </td>
