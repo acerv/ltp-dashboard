@@ -211,8 +211,22 @@ async fn index_handler(State(state): State<Arc<AppState>>) -> Response {
             return html_response(html);
         }
 
-        // No cache yet — build synchronously (only happens before startup prefetch finishes)
+        // No cache yet — wait for prefetch or build synchronously
         None => {}
+    }
+
+    // If a prefetch is already running, poll until it finishes
+    if state.refreshing.load(Ordering::Acquire) {
+        loop {
+            tokio::time::sleep(Duration::from_millis(200)).await;
+            if !state.refreshing.load(Ordering::Acquire) {
+                break;
+            }
+        }
+        let cache = state.cache.read().await;
+        if let Some((html, _)) = cache.as_ref() {
+            return html_response(html.clone());
+        }
     }
 
     match build_page(&state.client, state.max_patches, state.fetch_checks).await {
@@ -266,7 +280,7 @@ async fn run_web(
         max_patches,
         fetch_checks,
         cache: RwLock::new(None),
-        refreshing: AtomicBool::new(false),
+        refreshing: AtomicBool::new(true),
     });
 
     // Warm the cache before the first request arrives
@@ -282,6 +296,7 @@ async fn run_web(
                 }
                 Err(e) => eprintln!("Prefetch failed: {e}"),
             }
+            state2.refreshing.store(false, Ordering::Release);
         });
     }
 
