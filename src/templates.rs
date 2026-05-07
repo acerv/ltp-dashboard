@@ -534,9 +534,9 @@ pub fn render_index(data: &TemplateData<'_>) -> Result<String, minijinja::Error>
                         diff_lines => members.iter().map(|p| p.diff_lines).sum::<u32>(),
                         state => &best.state,
                         reasons => best.reasons.join(" · "),
-                        checks_passed => members.iter().map(|p| p.checks_passed).sum::<u32>(),
-                        checks_failed => members.iter().map(|p| p.checks_failed).sum::<u32>(),
-                        checks_total => members.iter().map(|p| p.checks_total).sum::<u32>(),
+                        checks_passed => best.checks_passed,
+                        checks_failed => best.checks_failed,
+                        checks_total => best.checks_total,
                         patches => child_patches,
                     });
                 } else {
