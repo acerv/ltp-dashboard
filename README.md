@@ -17,7 +17,8 @@ fetches, scores, and displays patches by priority in terminal or web UI.
   - New test detection
   - Library/core changes
 - **Priority Tiers**: P1 (≥80), P2 (≥60), P3 (≥40), P4 (≥20), P5 (<20)
-- **Parallel Fetching**: Three-level parallelism for fast data retrieval
+- **Parallel Fetching**: HTTP/2 multiplexing with connection pooling
+  for fast data retrieval
 - **Review Detection**: Scans email replies for `Reviewed-by:` and
   `Acked-by:` tags
 - **Two Output Modes**:
@@ -182,7 +183,8 @@ cargo fmt --check
 
 - **axum**: Web framework
 - **tokio**: Async runtime
-- **reqwest**: HTTP client (rustls, HTTP/2)
+- **isahc**: HTTP client (libcurl, HTTP/2 multiplexing)
+- **futures**: Async combinators (join_all)
 - **serde/serde_json**: JSON serialization
 - **minijinja**: HTML templating
 - **chrono**: Date/time handling
