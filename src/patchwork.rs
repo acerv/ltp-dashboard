@@ -16,19 +16,61 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-use reqwest::Client;
+use isahc::config::{Configurable, DnsCache, VersionNegotiation};
+use isahc::prelude::*;
+use isahc::HttpClient;
+use serde::de::DeserializeOwned;
 use serde::Deserialize;
 use std::collections::HashMap;
-use std::sync::Arc;
-use tokio::sync::Semaphore;
+use std::time::Duration;
 
 const PATCHWORK_BASE: &str = "https://patchwork.ozlabs.org/api";
 const PROJECT: &str = "ltp";
 
-const MAX_CONCURRENT_REQUESTS: usize = 50;
-
 // States: new, under-review, and needs-review-ack (numeric ID 11)
 const STATES: &[&str] = &["new", "under-review", "11"];
+
+// ---------------------------------------------------------------------------
+// HTTP helpers
+// ---------------------------------------------------------------------------
+
+pub fn build_client() -> anyhow::Result<HttpClient> {
+    Ok(HttpClient::builder()
+        .version_negotiation(VersionNegotiation::http2())
+        .max_connections(100)
+        .max_connections_per_host(100)
+        .connection_cache_size(200)
+        .tcp_nodelay()
+        .tcp_keepalive(Duration::from_secs(60))
+        .dns_cache(DnsCache::Forever)
+        .timeout(Duration::from_secs(60))
+        .build()?)
+}
+
+async fn fetch_json<T: DeserializeOwned + Unpin>(
+    client: &HttpClient,
+    url: &str,
+) -> anyhow::Result<T> {
+    let mut r = client.get_async(url).await?;
+    if !r.status().is_success() {
+        anyhow::bail!("HTTP {}", r.status());
+    }
+    let data: T = r.json().await?;
+    Ok(data)
+}
+
+async fn fetch_text(client: &HttpClient, url: &str) -> anyhow::Result<String> {
+    let mut r = client.get_async(url).await?;
+    if !r.status().is_success() {
+        anyhow::bail!("HTTP {}", r.status());
+    }
+    let text = r.text().await?;
+    Ok(text)
+}
+
+// ---------------------------------------------------------------------------
+// Data types
+// ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Deserialize)]
 #[allow(dead_code)]
@@ -81,41 +123,42 @@ struct PagedResponse {
     results: Vec<RawPatch>,
 }
 
+// ---------------------------------------------------------------------------
+// Patch list fetching
+// ---------------------------------------------------------------------------
+
 /// Fetch all patches for all configured states, up to max_patches total.
 /// Returns (patches, counts_per_state).
 pub async fn fetch_all_patches(
-    client: &Client,
+    client: &HttpClient,
     max_patches: usize,
-) -> anyhow::Result<(Vec<RawPatch>, std::collections::HashMap<String, usize>)> {
-    // Map numeric filter ID back to display name
-    let state_display =
-        std::collections::HashMap::from([("11".to_string(), "needs-review-ack".to_string())]);
+) -> anyhow::Result<(Vec<RawPatch>, HashMap<String, usize>)> {
+    let state_display = HashMap::from([("11".to_string(), "needs-review-ack".to_string())]);
 
-    let mut handles = Vec::new();
-    for &state in STATES {
-        let client = client.clone();
-        let state = state.to_owned();
-        let max = max_patches;
-        handles.push(tokio::spawn(async move {
-            fetch_state_patches(&client, &state, max).await
-        }));
-    }
+    let futs: Vec<_> = STATES
+        .iter()
+        .map(|&state| async move {
+            let result = fetch_state_patches(client, state, max_patches).await;
+            (state, result)
+        })
+        .collect();
+
+    let results = futures::future::join_all(futs).await;
 
     let mut all: Vec<RawPatch> = Vec::new();
-    let mut counts = std::collections::HashMap::new();
+    let mut counts = HashMap::new();
 
-    for (handle, &state) in handles.into_iter().zip(STATES.iter()) {
+    for (state, result) in results {
         let display = state_display
             .get(state)
             .cloned()
             .unwrap_or_else(|| state.to_string());
-        match handle.await {
-            Ok(Ok(patches)) => {
+        match result {
+            Ok(patches) => {
                 counts.insert(display, patches.len());
                 all.extend(patches);
             }
-            Ok(Err(e)) => eprintln!("Warning: failed to fetch state {state}: {e}"),
-            Err(e) => eprintln!("Warning: task panicked for state {state}: {e}"),
+            Err(e) => eprintln!("Warning: failed to fetch state {state}: {e}"),
         }
     }
 
@@ -123,15 +166,8 @@ pub async fn fetch_all_patches(
     Ok((all, counts))
 }
 
-async fn fetch_page(client: &Client, url: &str) -> anyhow::Result<Vec<RawPatch>> {
-    let text = client
-        .get(url)
-        .header("Accept", "application/json")
-        .send()
-        .await?
-        .text()
-        .await?;
-
+async fn fetch_page(client: &HttpClient, url: &str) -> anyhow::Result<Vec<RawPatch>> {
+    let text = fetch_text(client, url).await?;
     if text.trim_start().starts_with('[') {
         Ok(serde_json::from_str(&text)?)
     } else {
@@ -140,7 +176,7 @@ async fn fetch_page(client: &Client, url: &str) -> anyhow::Result<Vec<RawPatch>>
 }
 
 async fn fetch_state_patches(
-    client: &Client,
+    client: &HttpClient,
     state: &str,
     max_patches: usize,
 ) -> anyhow::Result<Vec<RawPatch>> {
@@ -148,14 +184,7 @@ async fn fetch_state_patches(
         "{PATCHWORK_BASE}/patches/?project={PROJECT}&state={state}&order=-date&per_page=100"
     );
 
-    // Fetch page 1 to learn the total count
-    let text = client
-        .get(&base_url)
-        .header("Accept", "application/json")
-        .send()
-        .await?
-        .text()
-        .await?;
+    let text = fetch_text(client, &base_url).await?;
 
     let (mut all, total) = if text.trim_start().starts_with('[') {
         let results: Vec<RawPatch> = serde_json::from_str(&text)?;
@@ -165,23 +194,21 @@ async fn fetch_state_patches(
         (paged.results, paged.count)
     };
 
-    // Spawn all remaining pages in parallel
     if let Some(total) = total {
         let n_pages = total.div_ceil(100);
         if n_pages > 1 {
-            let handles: Vec<_> = (2..=n_pages)
+            let futs: Vec<_> = (2..=n_pages)
                 .map(|page| {
-                    let client = client.clone();
                     let url = format!("{base_url}&page={page}");
-                    tokio::spawn(async move { fetch_page(&client, &url).await })
+                    async move { fetch_page(client, &url).await }
                 })
                 .collect();
 
-            for handle in handles {
-                match handle.await {
-                    Ok(Ok(patches)) => all.extend(patches),
-                    Ok(Err(e)) => eprintln!("Warning: page fetch failed: {e}"),
-                    Err(e) => eprintln!("Warning: page task panicked: {e}"),
+            let results = futures::future::join_all(futs).await;
+            for result in results {
+                match result {
+                    Ok(patches) => all.extend(patches),
+                    Err(e) => eprintln!("Warning: page fetch failed: {e}"),
                 }
             }
         }
@@ -206,50 +233,37 @@ struct CommentsResponse {
 }
 
 /// Fetch email reply counts for all patches in parallel.
-/// Returns map of patch_id → (reviewed_count, acked_count) found in comments.
 pub async fn fetch_all_comment_tags(
-    client: &Client,
+    client: &HttpClient,
     patch_ids: &[u64],
 ) -> HashMap<u64, (u32, u32)> {
-    let sem = Arc::new(Semaphore::new(MAX_CONCURRENT_REQUESTS));
-    let handles: Vec<_> = patch_ids
+    let tasks: Vec<_> = patch_ids
         .iter()
-        .map(|&id| {
-            let client = client.clone();
-            let sem = sem.clone();
-            tokio::spawn(async move {
-                let _permit = sem.acquire().await.unwrap();
-                let result = fetch_comment_tags_for_patch(&client, id).await;
-                (id, result)
-            })
+        .map(|&id| async move {
+            let result = fetch_comment_tags_for_patch(client, id).await;
+            (id, result)
         })
         .collect();
 
+    let results = futures::future::join_all(tasks).await;
     let mut out = HashMap::with_capacity(patch_ids.len());
-    for handle in handles {
-        match handle.await {
-            Ok((id, Ok(counts))) => {
+    for (id, result) in results {
+        match result {
+            Ok(counts) => {
                 out.insert(id, counts);
             }
-            Ok((id, Err(e))) => eprintln!("Warning: comments fetch failed for patch {id}: {e}"),
-            Err(e) => eprintln!("Warning: comments task panicked: {e}"),
+            Err(e) => eprintln!("Warning: comments fetch failed for patch {id}: {e}"),
         }
     }
     out
 }
 
 async fn fetch_comment_tags_for_patch(
-    client: &Client,
+    client: &HttpClient,
     patch_id: u64,
 ) -> anyhow::Result<(u32, u32)> {
     let url = format!("{PATCHWORK_BASE}/patches/{patch_id}/comments/");
-    let text = client
-        .get(&url)
-        .header("Accept", "application/json")
-        .send()
-        .await?
-        .text()
-        .await?;
+    let text = fetch_text(client, &url).await?;
 
     let comments: Vec<CommentEntry> = if text.trim_start().starts_with('[') {
         serde_json::from_str(&text)?
@@ -282,45 +296,31 @@ struct PatchDetail {
 }
 
 /// Fetch diff sizes (changed lines) for all patches in parallel.
-pub async fn fetch_all_diff_sizes(client: &Client, patch_ids: &[u64]) -> HashMap<u64, u32> {
-    let sem = Arc::new(Semaphore::new(MAX_CONCURRENT_REQUESTS));
-    let handles: Vec<_> = patch_ids
+pub async fn fetch_all_diff_sizes(client: &HttpClient, patch_ids: &[u64]) -> HashMap<u64, u32> {
+    let tasks: Vec<_> = patch_ids
         .iter()
-        .map(|&id| {
-            let client = client.clone();
-            let sem = sem.clone();
-            tokio::spawn(async move {
-                let _permit = sem.acquire().await.unwrap();
-                let result = fetch_diff_lines_for_patch(&client, id).await;
-                (id, result)
-            })
+        .map(|&id| async move {
+            let result = fetch_diff_lines_for_patch(client, id).await;
+            (id, result)
         })
         .collect();
 
+    let results = futures::future::join_all(tasks).await;
     let mut out = HashMap::with_capacity(patch_ids.len());
-    for handle in handles {
-        match handle.await {
-            Ok((id, Ok(lines))) => {
+    for (id, result) in results {
+        match result {
+            Ok(lines) => {
                 out.insert(id, lines);
             }
-            Ok((id, Err(e))) => eprintln!("Warning: diff fetch failed for patch {id}: {e}"),
-            Err(e) => eprintln!("Warning: diff task panicked: {e}"),
+            Err(e) => eprintln!("Warning: diff fetch failed for patch {id}: {e}"),
         }
     }
     out
 }
 
-async fn fetch_diff_lines_for_patch(client: &Client, patch_id: u64) -> anyhow::Result<u32> {
+async fn fetch_diff_lines_for_patch(client: &HttpClient, patch_id: u64) -> anyhow::Result<u32> {
     let url = format!("{PATCHWORK_BASE}/patches/{patch_id}/");
-    let text = client
-        .get(&url)
-        .header("Accept", "application/json")
-        .send()
-        .await?
-        .text()
-        .await?;
-
-    let detail: PatchDetail = serde_json::from_str(&text)?;
+    let detail: PatchDetail = fetch_json(client, &url).await?;
     let lines = detail.diff.as_deref().map(count_diff_lines).unwrap_or(0);
     Ok(lines)
 }
@@ -350,44 +350,37 @@ struct ChecksResponse {
 }
 
 /// Fetch CI check results for all patches in parallel.
-/// Returns a map of patch_id → (passed, failed, total).
-pub async fn fetch_all_checks(client: &Client, patch_ids: &[u64]) -> HashMap<u64, (u32, u32, u32)> {
-    let sem = Arc::new(Semaphore::new(MAX_CONCURRENT_REQUESTS));
-    let handles: Vec<_> = patch_ids
+pub async fn fetch_all_checks(
+    client: &HttpClient,
+    patch_ids: &[u64],
+) -> HashMap<u64, (u32, u32, u32)> {
+    let tasks: Vec<_> = patch_ids
         .iter()
-        .map(|&id| {
-            let client = client.clone();
-            let sem = sem.clone();
-            tokio::spawn(async move {
-                let _permit = sem.acquire().await.unwrap();
-                let result = fetch_checks_for_patch(&client, id).await;
-                (id, result)
-            })
+        .map(|&id| async move {
+            let result = fetch_checks_for_patch(client, id).await;
+            (id, result)
         })
         .collect();
 
+    let results = futures::future::join_all(tasks).await;
     let mut out = HashMap::with_capacity(patch_ids.len());
-    for handle in handles {
-        match handle.await {
-            Ok((id, Ok(counts))) => {
+    for (id, result) in results {
+        match result {
+            Ok(counts) => {
                 out.insert(id, counts);
             }
-            Ok((id, Err(e))) => eprintln!("Warning: checks fetch failed for patch {id}: {e}"),
-            Err(e) => eprintln!("Warning: checks task panicked: {e}"),
+            Err(e) => eprintln!("Warning: checks fetch failed for patch {id}: {e}"),
         }
     }
     out
 }
 
-async fn fetch_checks_for_patch(client: &Client, patch_id: u64) -> anyhow::Result<(u32, u32, u32)> {
+async fn fetch_checks_for_patch(
+    client: &HttpClient,
+    patch_id: u64,
+) -> anyhow::Result<(u32, u32, u32)> {
     let url = format!("{PATCHWORK_BASE}/patches/{patch_id}/checks/");
-    let text = client
-        .get(&url)
-        .header("Accept", "application/json")
-        .send()
-        .await?
-        .text()
-        .await?;
+    let text = fetch_text(client, &url).await?;
 
     let results: Vec<CheckEntry> = if text.trim_start().starts_with('[') {
         serde_json::from_str(&text)?

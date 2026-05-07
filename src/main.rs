@@ -22,6 +22,7 @@ mod scoring;
 mod templates;
 mod terminal;
 
+use isahc::HttpClient;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -68,7 +69,7 @@ struct Cli {
 // ---------------------------------------------------------------------------
 
 struct AppState {
-    client: reqwest::Client,
+    client: HttpClient,
     max_patches: usize,
     fetch_checks: bool,
     cache: RwLock<Option<(String, Instant)>>,
@@ -82,7 +83,7 @@ const CACHE_TTL: Duration = Duration::from_secs(5 * 60);
 // ---------------------------------------------------------------------------
 
 async fn fetch_and_score(
-    client: &reqwest::Client,
+    client: &HttpClient,
     max_patches: usize,
     fetch_checks: bool,
 ) -> anyhow::Result<(Vec<scoring::ScoredPatch>, HashMap<String, usize>)> {
@@ -165,7 +166,7 @@ async fn fetch_and_score(
 // ---------------------------------------------------------------------------
 
 async fn run_terminal(
-    client: &reqwest::Client,
+    client: &HttpClient,
     max_patches: usize,
     fetch_checks: bool,
 ) -> anyhow::Result<()> {
@@ -236,7 +237,7 @@ fn html_response(html: String) -> Response {
 }
 
 async fn build_page(
-    client: &reqwest::Client,
+    client: &HttpClient,
     max_patches: usize,
     fetch_checks: bool,
 ) -> anyhow::Result<String> {
@@ -255,7 +256,7 @@ async fn build_page(
 }
 
 async fn run_web(
-    client: reqwest::Client,
+    client: HttpClient,
     port: u16,
     max_patches: usize,
     fetch_checks: bool,
@@ -314,11 +315,7 @@ async fn main() -> anyhow::Result<()> {
     };
     let fetch_checks = cli.checks || cfg.checks;
 
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(30))
-        .user_agent("ltp-dashboard/0.1 (https://github.com/linux-test-project/ltp)")
-        .http2_adaptive_window(true)
-        .build()?;
+    let client = patchwork::build_client()?;
 
     if cli.web {
         run_web(client, port, max_patches, fetch_checks).await
