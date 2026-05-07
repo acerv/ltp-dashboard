@@ -25,7 +25,7 @@ use tokio::sync::Semaphore;
 const PATCHWORK_BASE: &str = "https://patchwork.ozlabs.org/api";
 const PROJECT: &str = "ltp";
 
-const MAX_CONCURRENT_REQUESTS: usize = 20;
+const MAX_CONCURRENT_REQUESTS: usize = 50;
 
 // States: new, under-review, and needs-review-ack (numeric ID 11)
 const STATES: &[&str] = &["new", "under-review", "11"];
