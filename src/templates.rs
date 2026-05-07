@@ -485,38 +485,61 @@ pub fn render_index(data: &TemplateData<'_>) -> Result<String, minijinja::Error>
         ("P5", "DEFER"),
     ];
 
+    // Pre-group multi-patch series across all tiers. Each series is assigned
+    // to the tier of its best-scoring patch so the whole group stays together.
+    let mut series_map: HashMap<u64, Vec<&ScoredPatch>> = HashMap::new();
+    let mut in_series: std::collections::HashSet<u64> = std::collections::HashSet::new();
+    for p in data.patches.iter() {
+        if p.series_size > 1 {
+            if let Some(sid) = p.series_id {
+                series_map.entry(sid).or_default().push(p);
+            }
+        }
+    }
+    // Only keep groups with >1 member; mark their patch ids
+    series_map.retain(|_, members| members.len() > 1);
+    for members in series_map.values() {
+        for p in members {
+            in_series.insert(p.id);
+        }
+    }
+    // Map series_id → tier of best patch
+    let series_tier: HashMap<u64, &str> = series_map
+        .iter()
+        .map(|(&sid, members)| {
+            let best = members.iter().max_by_key(|p| p.score).unwrap();
+            (sid, best.tier)
+        })
+        .collect();
+
     let mut counter = 1usize;
     let tiers: Vec<Value> = tier_order
         .iter()
         .map(|(tid, tlabel)| {
-            let tier_patches: Vec<&ScoredPatch> =
-                data.patches.iter().filter(|p| p.tier == *tid).collect();
-
-            // Group by series_id, preserving insertion order via a Vec of keys.
-            let mut series_order: Vec<Option<u64>> = Vec::new();
-            let mut series_map: HashMap<Option<u64>, Vec<&ScoredPatch>> = HashMap::new();
-            for p in &tier_patches {
-                let key = if p.series_size > 1 { p.series_id } else { None };
-                if !series_map.contains_key(&key) {
-                    series_order.push(key);
-                }
-                series_map.entry(key).or_default().push(p);
-            }
-
+            // Standalone patches in this tier + series assigned to this tier
             let mut items: Vec<Value> = Vec::new();
-            for key in &series_order {
-                let members = &series_map[key];
-                if key.is_some() && members.len() > 1 {
+
+            // Collect standalone patches and series for this tier, preserving
+            // score-descending order from the input.
+            let mut seen_series: std::collections::HashSet<u64> = std::collections::HashSet::new();
+            for p in data.patches.iter() {
+                if in_series.contains(&p.id) {
+                    let sid = p.series_id.unwrap();
+                    if series_tier.get(&sid) != Some(tid) {
+                        continue;
+                    }
+                    if !seen_series.insert(sid) {
+                        continue;
+                    }
+                    let members = &series_map[&sid];
                     let best = members.iter().max_by_key(|p| p.score).unwrap();
                     let num = counter;
                     counter += 1;
                     let child_patches: Vec<Value> =
                         members.iter().map(|p| patch_context(p, counter)).collect();
-                    // Don't increment counter for children — they share the parent num
-                    let series_id_val = key.unwrap();
                     items.push(context! {
                         is_series => true,
-                        series_id => series_id_val,
+                        series_id => sid,
                         num,
                         score => best.score,
                         tier => best.tier,
@@ -539,33 +562,31 @@ pub fn render_index(data: &TemplateData<'_>) -> Result<String, minijinja::Error>
                         checks_total => best.checks_total,
                         patches => child_patches,
                     });
-                } else {
-                    for p in members {
-                        let num = counter;
-                        counter += 1;
-                        items.push(context! {
-                            is_series => false,
-                            num,
-                            score => p.score,
-                            tier => p.tier,
-                            tier_label => p.tier_label,
-                            version => p.version,
-                            days => p.days,
-                            state => &p.state,
-                            rfc => p.rfc,
-                            series_size => p.series_size,
-                            reviewed => p.reviewed,
-                            acked => p.acked,
-                            superseded => p.superseded,
-                            diff_lines => p.diff_lines,
-                            name => &p.name,
-                            url => &p.url,
-                            reasons => p.reasons.join(" · "),
-                            checks_passed => p.checks_passed,
-                            checks_failed => p.checks_failed,
-                            checks_total => p.checks_total,
-                        });
-                    }
+                } else if p.tier == *tid {
+                    let num = counter;
+                    counter += 1;
+                    items.push(context! {
+                        is_series => false,
+                        num,
+                        score => p.score,
+                        tier => p.tier,
+                        tier_label => p.tier_label,
+                        version => p.version,
+                        days => p.days,
+                        state => &p.state,
+                        rfc => p.rfc,
+                        series_size => p.series_size,
+                        reviewed => p.reviewed,
+                        acked => p.acked,
+                        superseded => p.superseded,
+                        diff_lines => p.diff_lines,
+                        name => &p.name,
+                        url => &p.url,
+                        reasons => p.reasons.join(" · "),
+                        checks_passed => p.checks_passed,
+                        checks_failed => p.checks_failed,
+                        checks_total => p.checks_total,
+                    });
                 }
             }
 
