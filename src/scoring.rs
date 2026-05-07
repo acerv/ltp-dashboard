@@ -220,6 +220,7 @@ pub struct ScoredPatch {
     pub state: String,
     pub version: u32,
     pub rfc: bool,
+    pub series_id: Option<u64>,
     pub series_size: u32,
     pub reviewed: u32,
     pub acked: u32,
@@ -310,6 +311,7 @@ pub fn score_patch(patch: &RawPatch) -> ScoredPatch {
 
     let version = parse_version(name);
     let rfc = rfc_re().is_match(name);
+    let series_id = patch.series.first().and_then(|s| s.id);
     let series_size = parse_series_size(name, &patch.series);
     let days = age_days(&patch.date);
     let fix_keyword = fix_keywords_re().is_match(name);
@@ -415,6 +417,7 @@ pub fn score_patch(patch: &RawPatch) -> ScoredPatch {
         state: state.clone(),
         version,
         rfc,
+        series_id,
         series_size,
         reviewed,
         acked,

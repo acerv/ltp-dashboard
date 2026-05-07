@@ -16,6 +16,8 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+use std::collections::HashMap;
+
 use minijinja::{context, Environment, Value};
 
 use crate::scoring::ScoredPatch;
@@ -194,6 +196,15 @@ const TEMPLATE: &str = r#"<!DOCTYPE html>
     .sbadge-smalldiff  { background: #064e3b; color: #6ee7b7; }
     .sbadge-largediff  { background: #854d0e; color: #fef9c3; }
 
+    /* Series rows */
+    .series-toggle { cursor: pointer; }
+    .series-toggle:hover td { background: rgba(255,255,255,0.06) !important; }
+    .series-indicator { display: inline-block; width: 14px; font-size: 0.65rem; color: #888; }
+    .series-indent { display: inline-block; width: 14px; }
+    .series-detail td { opacity: 0.85; }
+    .series-detail.has-review td { background: rgba(20, 83, 45, 0.18); }
+    .series-detail td:first-child { border-left: 3px solid #2a2a4a; }
+
     /* Empty state */
     .empty-row td {
       text-align: center;
@@ -294,6 +305,66 @@ const TEMPLATE: &str = r#"<!DOCTYPE html>
       </tr>
       {% else %}
       {% for p in tier.patches %}
+      {% if p.is_series %}
+      <tr class="tier-{{ p.tier }} series-toggle{% if p.reviewed > 0 or p.acked > 0 %} has-review{% endif %}{% if p.superseded %} is-superseded{% endif %}" onclick="toggleSeries(this, '{{ p.series_id }}')">
+        <td class="col-num">{{ p.num }}</td>
+        <td class="col-score">{{ p.score }}</td>
+        <td class="col-tier"><span class="badge badge-{{ p.tier }}">{{ p.tier }}</span></td>
+        <td class="col-ver">v{{ p.version }}</td>
+        <td class="col-age">{{ p.days }}d</td>
+        {% if show_checks %}
+        <td class="col-ci">
+          {% if p.checks_total == 0 %}<span class="ci-none">—</span>
+          {% elif p.checks_passed == p.checks_total %}<span class="ci-pass">{{ p.checks_passed }}/{{ p.checks_total }}</span>
+          {% elif p.checks_failed > 0 %}<span class="ci-fail">{{ p.checks_passed }}/{{ p.checks_total }}</span>
+          {% else %}<span class="ci-warn">{{ p.checks_passed }}/{{ p.checks_total }}</span>
+          {% endif %}
+        </td>
+        {% endif %}
+        <td>
+          <span class="series-indicator" id="ind-{{ p.series_id }}">&#9654;</span>
+          <a class="subject-link" href="{{ p.url }}" target="_blank" rel="noopener" onclick="event.stopPropagation()">{{ p.name }}</a>
+          <span class="sbadge sbadge-series">SERIES {{ p.series_size }}</span>
+          {% if p.days > 60 %}<span class="sbadge sbadge-stale">Stale</span>{% endif %}
+          {% if p.rfc %}<span class="sbadge sbadge-rfc">RFC</span>{% endif %}
+          {% if p.state == "under-review" %}<span class="sbadge sbadge-review">Under Review</span>{% endif %}
+          {% if p.reviewed > 0 %}<span class="sbadge sbadge-reviewed">Reviewed-by</span>{% endif %}
+          {% if p.acked > 0 %}<span class="sbadge sbadge-acked">Acked-by</span>{% endif %}
+          {% if p.superseded %}<span class="sbadge sbadge-superseded">Superseded</span>{% endif %}
+          <div class="reasons">{{ p.reasons }}</div>
+        </td>
+      </tr>
+      {% for c in p.patches %}
+      <tr class="tier-{{ c.tier }} series-detail series-{{ p.series_id }}{% if c.reviewed > 0 or c.acked > 0 %} has-review{% endif %}" style="display:none">
+        <td class="col-num"></td>
+        <td class="col-score">{{ c.score }}</td>
+        <td class="col-tier"><span class="badge badge-{{ c.tier }}">{{ c.tier }}</span></td>
+        <td class="col-ver">v{{ c.version }}</td>
+        <td class="col-age">{{ c.days }}d</td>
+        {% if show_checks %}
+        <td class="col-ci">
+          {% if c.checks_total == 0 %}<span class="ci-none">—</span>
+          {% elif c.checks_passed == c.checks_total %}<span class="ci-pass">{{ c.checks_passed }}/{{ c.checks_total }}</span>
+          {% elif c.checks_failed > 0 %}<span class="ci-fail">{{ c.checks_passed }}/{{ c.checks_total }}</span>
+          {% else %}<span class="ci-warn">{{ c.checks_passed }}/{{ c.checks_total }}</span>
+          {% endif %}
+        </td>
+        {% endif %}
+        <td>
+          <span class="series-indent"></span>
+          <a class="subject-link" href="{{ c.url }}" target="_blank" rel="noopener">{{ c.name }}</a>
+          {% if c.days > 60 %}<span class="sbadge sbadge-stale">Stale</span>{% endif %}
+          {% if c.rfc %}<span class="sbadge sbadge-rfc">RFC</span>{% endif %}
+          {% if c.state == "under-review" %}<span class="sbadge sbadge-review">Under Review</span>{% endif %}
+          {% if c.reviewed > 0 %}<span class="sbadge sbadge-reviewed">Reviewed-by</span>{% endif %}
+          {% if c.acked > 0 %}<span class="sbadge sbadge-acked">Acked-by</span>{% endif %}
+          {% if c.diff_lines > 200 %}<span class="sbadge sbadge-largediff">{{ c.diff_lines }} lines</span>
+          {% elif c.diff_lines > 0 and c.diff_lines <= 50 %}<span class="sbadge sbadge-smalldiff">{{ c.diff_lines }} lines</span>{% endif %}
+          <div class="reasons">{{ c.reasons }}</div>
+        </td>
+      </tr>
+      {% endfor %}
+      {% else %}
       <tr class="tier-{{ p.tier }}{% if p.reviewed > 0 or p.acked > 0 %} has-review{% endif %}{% if p.superseded %} is-superseded{% endif %}">
         <td class="col-num">{{ p.num }}</td>
         <td class="col-score">{{ p.score }}</td>
@@ -323,6 +394,7 @@ const TEMPLATE: &str = r#"<!DOCTYPE html>
           <div class="reasons">{{ p.reasons }}</div>
         </td>
       </tr>
+      {% endif %}
       {% endfor %}
       {% endif %}
     </tbody>
@@ -347,6 +419,18 @@ const TEMPLATE: &str = r#"<!DOCTYPE html>
   <p class="refresh-note">Page auto-refreshes every 5 minutes.</p>
 </div>
 
+<script>
+function toggleSeries(row, seriesId) {
+  var details = document.querySelectorAll('.series-' + seriesId);
+  var ind = document.getElementById('ind-' + seriesId);
+  var visible = details.length > 0 && details[0].style.display !== 'none';
+  for (var i = 0; i < details.length; i++) {
+    details[i].style.display = visible ? 'none' : '';
+  }
+  if (ind) ind.innerHTML = visible ? '&#9654;' : '&#9660;';
+}
+</script>
+
 </body>
 </html>
 "#;
@@ -355,6 +439,30 @@ pub struct TemplateData<'a> {
     pub patches: &'a [ScoredPatch],
     pub generated_at: String,
     pub show_checks: bool,
+}
+
+fn patch_context(p: &ScoredPatch, num: usize) -> Value {
+    context! {
+        num,
+        score => p.score,
+        tier => p.tier,
+        tier_label => p.tier_label,
+        version => p.version,
+        days => p.days,
+        state => &p.state,
+        rfc => p.rfc,
+        series_size => p.series_size,
+        reviewed => p.reviewed,
+        acked => p.acked,
+        superseded => p.superseded,
+        diff_lines => p.diff_lines,
+        name => &p.name,
+        url => &p.url,
+        reasons => p.reasons.join(" · "),
+        checks_passed => p.checks_passed,
+        checks_failed => p.checks_failed,
+        checks_total => p.checks_total,
+    }
 }
 
 pub fn render_index(data: &TemplateData<'_>) -> Result<String, minijinja::Error> {
@@ -381,44 +489,90 @@ pub fn render_index(data: &TemplateData<'_>) -> Result<String, minijinja::Error>
     let tiers: Vec<Value> = tier_order
         .iter()
         .map(|(tid, tlabel)| {
-            let group: Vec<Value> = data
-                .patches
-                .iter()
-                .filter(|p| p.tier == *tid)
-                .map(|p| {
+            let tier_patches: Vec<&ScoredPatch> =
+                data.patches.iter().filter(|p| p.tier == *tid).collect();
+
+            // Group by series_id, preserving insertion order via a Vec of keys.
+            let mut series_order: Vec<Option<u64>> = Vec::new();
+            let mut series_map: HashMap<Option<u64>, Vec<&ScoredPatch>> = HashMap::new();
+            for p in &tier_patches {
+                let key = if p.series_size > 1 { p.series_id } else { None };
+                if !series_map.contains_key(&key) {
+                    series_order.push(key);
+                }
+                series_map.entry(key).or_default().push(p);
+            }
+
+            let mut items: Vec<Value> = Vec::new();
+            for key in &series_order {
+                let members = &series_map[key];
+                if key.is_some() && members.len() > 1 {
+                    let best = members.iter().max_by_key(|p| p.score).unwrap();
                     let num = counter;
                     counter += 1;
-                    context! {
+                    let child_patches: Vec<Value> =
+                        members.iter().map(|p| patch_context(p, counter)).collect();
+                    // Don't increment counter for children — they share the parent num
+                    let series_id_val = key.unwrap();
+                    items.push(context! {
+                        is_series => true,
+                        series_id => series_id_val,
                         num,
-                        score => p.score,
-                        tier => p.tier,
-                        tier_label => p.tier_label,
-                        version => p.version,
-                        days => p.days,
-                        state => &p.state,
-                        rfc => p.rfc,
-                        series_size => p.series_size,
-                        reviewed => p.reviewed,
-                        acked => p.acked,
-                        superseded => p.superseded,
-                        diff_lines => p.diff_lines,
-                        name => &p.name,
-                        url => &p.url,
-                        reasons => p.reasons.join(" · "),
-                        checks_passed => p.checks_passed,
-                        checks_failed => p.checks_failed,
-                        checks_total => p.checks_total,
+                        score => best.score,
+                        tier => best.tier,
+                        tier_label => best.tier_label,
+                        version => best.version,
+                        days => best.days,
+                        series_size => members.len(),
+                        name => &best.name,
+                        url => &best.url,
+                        submitter => &best.submitter,
+                        reviewed => members.iter().map(|p| p.reviewed).sum::<u32>(),
+                        acked => members.iter().map(|p| p.acked).sum::<u32>(),
+                        superseded => best.superseded,
+                        rfc => best.rfc,
+                        diff_lines => members.iter().map(|p| p.diff_lines).sum::<u32>(),
+                        state => &best.state,
+                        reasons => best.reasons.join(" · "),
+                        checks_passed => members.iter().map(|p| p.checks_passed).sum::<u32>(),
+                        checks_failed => members.iter().map(|p| p.checks_failed).sum::<u32>(),
+                        checks_total => members.iter().map(|p| p.checks_total).sum::<u32>(),
+                        patches => child_patches,
+                    });
+                } else {
+                    for p in members {
+                        let num = counter;
+                        counter += 1;
+                        items.push(context! {
+                            is_series => false,
+                            num,
+                            score => p.score,
+                            tier => p.tier,
+                            tier_label => p.tier_label,
+                            version => p.version,
+                            days => p.days,
+                            state => &p.state,
+                            rfc => p.rfc,
+                            series_size => p.series_size,
+                            reviewed => p.reviewed,
+                            acked => p.acked,
+                            superseded => p.superseded,
+                            diff_lines => p.diff_lines,
+                            name => &p.name,
+                            url => &p.url,
+                            reasons => p.reasons.join(" · "),
+                            checks_passed => p.checks_passed,
+                            checks_failed => p.checks_failed,
+                            checks_total => p.checks_total,
+                        });
                     }
-                })
-                .collect();
+                }
+            }
 
-            // Sort by score desc, then days asc (already filtered but keep stable order)
-            // Note: patches were pre-sorted before being passed in, so this is a no-op;
-            // kept here for safety in case ordering changes upstream.
             context! {
                 tier_id => *tid,
                 tier_label => *tlabel,
-                patches => group,
+                patches => items,
             }
         })
         .collect();

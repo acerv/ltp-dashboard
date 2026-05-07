@@ -39,6 +39,7 @@ pub struct Submitter {
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct SeriesRef {
+    pub id: Option<u64>,
     pub total: Option<u32>,
     pub count: Option<u32>,
 }
