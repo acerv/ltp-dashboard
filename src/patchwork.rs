@@ -19,9 +19,13 @@
 use reqwest::Client;
 use serde::Deserialize;
 use std::collections::HashMap;
+use std::sync::Arc;
+use tokio::sync::Semaphore;
 
 const PATCHWORK_BASE: &str = "https://patchwork.ozlabs.org/api";
 const PROJECT: &str = "ltp";
+
+const MAX_CONCURRENT_REQUESTS: usize = 20;
 
 // States: new, under-review, and needs-review-ack (numeric ID 11)
 const STATES: &[&str] = &["new", "under-review", "11"];
@@ -206,11 +210,14 @@ pub async fn fetch_all_comment_tags(
     client: &Client,
     patch_ids: &[u64],
 ) -> HashMap<u64, (u32, u32)> {
+    let sem = Arc::new(Semaphore::new(MAX_CONCURRENT_REQUESTS));
     let handles: Vec<_> = patch_ids
         .iter()
         .map(|&id| {
             let client = client.clone();
+            let sem = sem.clone();
             tokio::spawn(async move {
+                let _permit = sem.acquire().await.unwrap();
                 let result = fetch_comment_tags_for_patch(&client, id).await;
                 (id, result)
             })
@@ -275,11 +282,14 @@ struct PatchDetail {
 
 /// Fetch diff sizes (changed lines) for all patches in parallel.
 pub async fn fetch_all_diff_sizes(client: &Client, patch_ids: &[u64]) -> HashMap<u64, u32> {
+    let sem = Arc::new(Semaphore::new(MAX_CONCURRENT_REQUESTS));
     let handles: Vec<_> = patch_ids
         .iter()
         .map(|&id| {
             let client = client.clone();
+            let sem = sem.clone();
             tokio::spawn(async move {
+                let _permit = sem.acquire().await.unwrap();
                 let result = fetch_diff_lines_for_patch(&client, id).await;
                 (id, result)
             })
@@ -341,11 +351,14 @@ struct ChecksResponse {
 /// Fetch CI check results for all patches in parallel.
 /// Returns a map of patch_id → (passed, failed, total).
 pub async fn fetch_all_checks(client: &Client, patch_ids: &[u64]) -> HashMap<u64, (u32, u32, u32)> {
+    let sem = Arc::new(Semaphore::new(MAX_CONCURRENT_REQUESTS));
     let handles: Vec<_> = patch_ids
         .iter()
         .map(|&id| {
             let client = client.clone();
+            let sem = sem.clone();
             tokio::spawn(async move {
+                let _permit = sem.acquire().await.unwrap();
                 let result = fetch_checks_for_patch(&client, id).await;
                 (id, result)
             })
