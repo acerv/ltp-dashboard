@@ -157,6 +157,7 @@ async fn fetch_and_score(
 
     scored.sort_by(|a, b| b.score.cmp(&a.score).then(b.days.cmp(&a.days)));
     scoring::mark_superseded(&mut scored);
+    scored.retain(|p| !p.superseded);
 
     Ok((scored, counts))
 }

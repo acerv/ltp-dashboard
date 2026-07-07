@@ -37,9 +37,9 @@ const STATES: &[&str] = &["new", "under-review", "11"];
 pub fn build_client() -> anyhow::Result<HttpClient> {
     Ok(HttpClient::builder()
         .version_negotiation(VersionNegotiation::http2())
-        .max_connections(100)
-        .max_connections_per_host(100)
-        .connection_cache_size(200)
+        .max_connections(8)
+        .max_connections_per_host(4)
+        .connection_cache_size(8)
         .tcp_nodelay()
         .tcp_keepalive(Duration::from_secs(60))
         .dns_cache(DnsCache::Forever)
