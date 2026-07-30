@@ -158,7 +158,10 @@ pub fn print_queue(
             } else {
                 p.name.clone()
             };
-            let subj_pad = format!("{:<w_subj$}", name_trunc);
+            let link = format!("\x1b]8;;{}\x1b\\{name_trunc}\x1b]8;;\x1b\\", p.url);
+            let vis_len = name_trunc.len();
+            let pad_len = w_subj.saturating_sub(vis_len);
+            let subj_pad = format!("{link}{}", " ".repeat(pad_len));
             let notes = p.notes();
 
             println!(
