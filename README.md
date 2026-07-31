@@ -3,6 +3,8 @@
 A Rust-based dashboard for [Linux Test Project (LTP)][ltp]. Automatically
 fetches, scores, and displays patches by priority in terminal or web UI.
 
+![LTP Dashboard Demo](demo.gif)
+
 [ltp]: https://github.com/linux-test-project/ltp
 
 ## Features
