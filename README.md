@@ -7,6 +7,7 @@ fetches, scores, and displays patches by priority in terminal or web UI.
 
 ## Features
 
+- **Multiple Projects**: Support for fetching and aggregating patches from multiple Patchwork instances simultaneously.
 - **Intelligent Scoring**: Multi-factor priority scoring based on:
   - Patch version (higher versions = more refined)
   - Age (inverted-U curve: peaks at 31-60 days, decays for very
@@ -71,6 +72,22 @@ Create `config.toml` in the project directory or
 port = 3030
 max_patches = 500
 checks = false
+
+[[instances]]
+url = "https://patchwork.kernel.org/api"
+project = "ltp"
+alias = "LTP (kernel.org)"
+max_connections = 8
+max_connections_per_host = 4
+timeout_secs = 60
+
+[[instances]]
+url = "https://patchwork.ozlabs.org/api"
+project = "ltp"
+alias = "LTP (ozlabs.org)"
+max_connections = 8
+max_connections_per_host = 4
+timeout_secs = 60
 ```
 
 **Priority**: `~/.config/ltp-dashboard/config.toml` > `./config.toml` >
@@ -138,6 +155,7 @@ Options:
   - 🟢 **N lines**: Small diff (≤50 lines changed)
   - 🟡 **N lines**: Large diff (>200 lines changed)
 - **Superseded**: Older version exists in the list
+- **Smart Series Grouping**: Patches in the same series are grouped globally
 - **Green Highlight**: Patches with `Reviewed-by` or `Acked-by`
 - **Auto-Refresh**: Updates every 5 minutes
 - **Gzip Compression**: Faster page loads
