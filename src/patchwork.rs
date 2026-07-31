@@ -16,6 +16,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+use crate::config::PatchworkInstance;
 use isahc::config::{Configurable, DnsCache, VersionNegotiation};
 use isahc::prelude::*;
 use isahc::HttpClient;
@@ -24,9 +25,6 @@ use serde::Deserialize;
 use std::collections::HashMap;
 use std::time::Duration;
 
-const PATCHWORK_BASE: &str = "https://patchwork.ozlabs.org/api";
-const PROJECT: &str = "ltp";
-
 // States: new, under-review, and needs-review-ack (numeric ID 11)
 const STATES: &[&str] = &["new", "under-review", "11"];
 
@@ -34,16 +32,16 @@ const STATES: &[&str] = &["new", "under-review", "11"];
 // HTTP helpers
 // ---------------------------------------------------------------------------
 
-pub fn build_client() -> anyhow::Result<HttpClient> {
+pub fn build_client(instance: &PatchworkInstance) -> anyhow::Result<HttpClient> {
     Ok(HttpClient::builder()
         .version_negotiation(VersionNegotiation::http2())
-        .max_connections(8)
-        .max_connections_per_host(4)
-        .connection_cache_size(8)
+        .max_connections(instance.max_connections)
+        .max_connections_per_host(instance.max_connections_per_host)
+        .connection_cache_size(instance.max_connections)
         .tcp_nodelay()
         .tcp_keepalive(Duration::from_secs(60))
         .dns_cache(DnsCache::Forever)
-        .timeout(Duration::from_secs(60))
+        .timeout(Duration::from_secs(instance.timeout_secs))
         .build()?)
 }
 
@@ -131,6 +129,7 @@ struct PagedResponse {
 /// Returns (patches, counts_per_state).
 pub async fn fetch_all_patches(
     client: &HttpClient,
+    instance: &PatchworkInstance,
     max_patches: usize,
 ) -> anyhow::Result<(Vec<RawPatch>, HashMap<String, usize>)> {
     let state_display = HashMap::from([("11".to_string(), "needs-review-ack".to_string())]);
@@ -138,7 +137,7 @@ pub async fn fetch_all_patches(
     let futs: Vec<_> = STATES
         .iter()
         .map(|&state| async move {
-            let result = fetch_state_patches(client, state, max_patches).await;
+            let result = fetch_state_patches(client, instance, state, max_patches).await;
             (state, result)
         })
         .collect();
@@ -177,11 +176,13 @@ async fn fetch_page(client: &HttpClient, url: &str) -> anyhow::Result<Vec<RawPat
 
 async fn fetch_state_patches(
     client: &HttpClient,
+    instance: &PatchworkInstance,
     state: &str,
     max_patches: usize,
 ) -> anyhow::Result<Vec<RawPatch>> {
     let base_url = format!(
-        "{PATCHWORK_BASE}/patches/?project={PROJECT}&state={state}&order=-date&per_page=100"
+        "{}/patches/?project={}&state={state}&order=-date&per_page=100",
+        instance.url, instance.project
     );
 
     let text = fetch_text(client, &base_url).await?;
@@ -235,12 +236,13 @@ struct CommentsResponse {
 /// Fetch email reply counts for all patches in parallel.
 pub async fn fetch_all_comment_tags(
     client: &HttpClient,
+    instance: &PatchworkInstance,
     patch_ids: &[u64],
 ) -> HashMap<u64, (u32, u32)> {
     let tasks: Vec<_> = patch_ids
         .iter()
         .map(|&id| async move {
-            let result = fetch_comment_tags_for_patch(client, id).await;
+            let result = fetch_comment_tags_for_patch(client, instance, id).await;
             (id, result)
         })
         .collect();
@@ -260,9 +262,10 @@ pub async fn fetch_all_comment_tags(
 
 async fn fetch_comment_tags_for_patch(
     client: &HttpClient,
+    instance: &PatchworkInstance,
     patch_id: u64,
 ) -> anyhow::Result<(u32, u32)> {
-    let url = format!("{PATCHWORK_BASE}/patches/{patch_id}/comments/");
+    let url = format!("{}/patches/{patch_id}/comments/", instance.url);
     let text = fetch_text(client, &url).await?;
 
     let comments: Vec<CommentEntry> = if text.trim_start().starts_with('[') {
@@ -296,11 +299,11 @@ struct PatchDetail {
 }
 
 /// Fetch diff sizes (changed lines) for all patches in parallel.
-pub async fn fetch_all_diff_sizes(client: &HttpClient, patch_ids: &[u64]) -> HashMap<u64, u32> {
+pub async fn fetch_all_diff_sizes(client: &HttpClient, instance: &PatchworkInstance, patch_ids: &[u64]) -> HashMap<u64, u32> {
     let tasks: Vec<_> = patch_ids
         .iter()
         .map(|&id| async move {
-            let result = fetch_diff_lines_for_patch(client, id).await;
+            let result = fetch_diff_lines_for_patch(client, instance, id).await;
             (id, result)
         })
         .collect();
@@ -318,8 +321,8 @@ pub async fn fetch_all_diff_sizes(client: &HttpClient, patch_ids: &[u64]) -> Has
     out
 }
 
-async fn fetch_diff_lines_for_patch(client: &HttpClient, patch_id: u64) -> anyhow::Result<u32> {
-    let url = format!("{PATCHWORK_BASE}/patches/{patch_id}/");
+async fn fetch_diff_lines_for_patch(client: &HttpClient, instance: &PatchworkInstance, patch_id: u64) -> anyhow::Result<u32> {
+    let url = format!("{}/patches/{patch_id}/", instance.url);
     let detail: PatchDetail = fetch_json(client, &url).await?;
     let lines = detail.diff.as_deref().map(count_diff_lines).unwrap_or(0);
     Ok(lines)
@@ -352,12 +355,13 @@ struct ChecksResponse {
 /// Fetch CI check results for all patches in parallel.
 pub async fn fetch_all_checks(
     client: &HttpClient,
+    instance: &PatchworkInstance,
     patch_ids: &[u64],
 ) -> HashMap<u64, (u32, u32, u32)> {
     let tasks: Vec<_> = patch_ids
         .iter()
         .map(|&id| async move {
-            let result = fetch_checks_for_patch(client, id).await;
+            let result = fetch_checks_for_patch(client, instance, id).await;
             (id, result)
         })
         .collect();
@@ -377,9 +381,10 @@ pub async fn fetch_all_checks(
 
 async fn fetch_checks_for_patch(
     client: &HttpClient,
+    instance: &PatchworkInstance,
     patch_id: u64,
 ) -> anyhow::Result<(u32, u32, u32)> {
-    let url = format!("{PATCHWORK_BASE}/patches/{patch_id}/checks/");
+    let url = format!("{}/patches/{patch_id}/checks/", instance.url);
     let text = fetch_text(client, &url).await?;
 
     let results: Vec<CheckEntry> = if text.trim_start().starts_with('[') {

@@ -131,6 +131,7 @@ const TEMPLATE: &str = r#"<!DOCTYPE html>
     .patch-table .col-num    { text-align: right;  color: #555; font-size: 0.78rem; }
     .patch-table .col-score  { text-align: right;  font-weight: 700; font-size: 0.9rem; }
     .patch-table .col-tier   { text-align: center; }
+    .patch-table .col-proj   { text-align: center; }
     .patch-table .col-ver    { text-align: center; color: #aaa; }
     .patch-table .col-age    { text-align: right;  color: #888; white-space: nowrap; }
     .patch-table .col-ci     { text-align: center; }
@@ -195,6 +196,7 @@ const TEMPLATE: &str = r#"<!DOCTYPE html>
     .sbadge-superseded { background: #7f1d1d; color: #fca5a5; }
     .sbadge-smalldiff  { background: #064e3b; color: #6ee7b7; }
     .sbadge-largediff  { background: #854d0e; color: #fef9c3; }
+    .sbadge-project    { background: #2d3748; color: #e2e8f0; }
 
     /* Series rows */
     .series-toggle { cursor: pointer; }
@@ -262,10 +264,7 @@ const TEMPLATE: &str = r#"<!DOCTYPE html>
 
 <h1>LTP Dashboard</h1>
 <p class="subtitle">
-  Fetched {{ total }} patches from
-  <a href="https://patchwork.ozlabs.org/project/ltp/list/" target="_blank" rel="noopener">
-    patchwork.ozlabs.org
-  </a>
+  Fetched {{ total }} patches from projects {{ projects }}
   &mdash; generated {{ generated_at }}
 </p>
 
@@ -282,6 +281,7 @@ const TEMPLATE: &str = r#"<!DOCTYPE html>
       <col style="width:48px">
       <col style="width:68px">
       <col style="width:76px">
+      <col style="width:76px">
       <col style="width:52px">
       <col style="width:64px">
       {% if show_checks %}<col style="width:80px">{% endif %}
@@ -292,6 +292,7 @@ const TEMPLATE: &str = r#"<!DOCTYPE html>
         <th class="col-num">#</th>
         <th class="col-score">Score</th>
         <th class="col-tier">Tier</th>
+        <th class="col-proj">Project</th>
         <th class="col-ver">Ver</th>
         <th class="col-age">Age</th>
         {% if show_checks %}<th class="col-ci">CI</th>{% endif %}
@@ -301,7 +302,7 @@ const TEMPLATE: &str = r#"<!DOCTYPE html>
     <tbody>
       {% if tier.patches | length == 0 %}
       <tr class="empty-row">
-        <td colspan="{{ 6 + (show_checks | int) }}">No patches in this tier</td>
+        <td colspan="{{ 7 + (show_checks | int) }}">No patches in this tier</td>
       </tr>
       {% else %}
       {% for p in tier.patches %}
@@ -310,6 +311,7 @@ const TEMPLATE: &str = r#"<!DOCTYPE html>
         <td class="col-num">{{ p.num }}</td>
         <td class="col-score">{{ p.score }}</td>
         <td class="col-tier"><span class="badge badge-{{ p.tier }}">{{ p.tier }}</span></td>
+        <td class="col-proj"><span class="sbadge sbadge-project">{{ p.project }}</span></td>
         <td class="col-ver">v{{ p.version }}</td>
         <td class="col-age">{{ p.days }}d</td>
         {% if show_checks %}
@@ -339,6 +341,7 @@ const TEMPLATE: &str = r#"<!DOCTYPE html>
         <td class="col-num"></td>
         <td class="col-score">{{ c.score }}</td>
         <td class="col-tier"><span class="badge badge-{{ c.tier }}">{{ c.tier }}</span></td>
+        <td class="col-proj"><span class="sbadge sbadge-project">{{ c.project }}</span></td>
         <td class="col-ver">v{{ c.version }}</td>
         <td class="col-age">{{ c.days }}d</td>
         {% if show_checks %}
@@ -369,6 +372,7 @@ const TEMPLATE: &str = r#"<!DOCTYPE html>
         <td class="col-num">{{ p.num }}</td>
         <td class="col-score">{{ p.score }}</td>
         <td class="col-tier"><span class="badge badge-{{ p.tier }}">{{ p.tier }}</span></td>
+        <td class="col-proj"><span class="sbadge sbadge-project">{{ p.project }}</span></td>
         <td class="col-ver">v{{ p.version }}</td>
         <td class="col-age">{{ p.days }}d</td>
         {% if show_checks %}
@@ -439,11 +443,13 @@ pub struct TemplateData<'a> {
     pub patches: &'a [ScoredPatch],
     pub generated_at: String,
     pub show_checks: bool,
+    pub projects: String,
 }
 
 fn patch_context(p: &ScoredPatch, num: usize) -> Value {
     context! {
         num,
+        project => &p.label,
         score => p.score,
         tier => p.tier,
         tier_label => p.tier_label,
@@ -541,6 +547,7 @@ pub fn render_index(data: &TemplateData<'_>) -> Result<String, minijinja::Error>
                         is_series => true,
                         series_id => sid,
                         num,
+                        project => &best.label,
                         score => best.score,
                         tier => best.tier,
                         tier_label => best.tier_label,
@@ -568,6 +575,7 @@ pub fn render_index(data: &TemplateData<'_>) -> Result<String, minijinja::Error>
                     items.push(context! {
                         is_series => false,
                         num,
+                        project => &p.label,
                         score => p.score,
                         tier => p.tier,
                         tier_label => p.tier_label,
@@ -606,6 +614,7 @@ pub fn render_index(data: &TemplateData<'_>) -> Result<String, minijinja::Error>
         superseded_count,
         generated_at => &data.generated_at,
         show_checks => data.show_checks,
+        projects => &data.projects,
         tiers,
     })?;
 

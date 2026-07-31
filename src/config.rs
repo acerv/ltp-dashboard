@@ -28,12 +28,43 @@ fn dirs_home() -> Option<PathBuf> {
 // Config struct
 // ---------------------------------------------------------------------------
 
+#[derive(Debug, Deserialize, Clone)]
+#[serde(default)]
+pub struct PatchworkInstance {
+    pub url: String,
+    pub project: String,
+    pub alias: Option<String>,
+    pub max_connections: usize,
+    pub max_connections_per_host: usize,
+    pub timeout_secs: u64,
+}
+
+impl PatchworkInstance {
+    pub fn display_name(&self) -> &str {
+        self.alias.as_deref().unwrap_or(&self.project)
+    }
+}
+
+impl Default for PatchworkInstance {
+    fn default() -> Self {
+        Self {
+            url: "https://patchwork.kernel.org/api".to_string(),
+            project: "ltp".to_string(),
+            alias: None,
+            max_connections: 8,
+            max_connections_per_host: 4,
+            timeout_secs: 60,
+        }
+    }
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(default)]
 pub struct Config {
     pub port: u16,
     pub max_patches: usize,
     pub checks: bool,
+    pub instances: Vec<PatchworkInstance>,
 }
 
 impl Default for Config {
@@ -42,6 +73,7 @@ impl Default for Config {
             port: 3030,
             max_patches: 500,
             checks: false,
+            instances: vec![PatchworkInstance::default()],
         }
     }
 }
@@ -104,6 +136,8 @@ mod tests {
         assert_eq!(cfg.port, 3030);
         assert_eq!(cfg.max_patches, 500);
         assert!(!cfg.checks);
+        assert_eq!(cfg.instances.len(), 1);
+        assert_eq!(cfg.instances[0].project, "ltp");
     }
 
     #[test]

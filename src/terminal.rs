@@ -80,7 +80,19 @@ pub fn print_queue(
     const W_VER: usize = 3;
     const W_AGE: usize = 5;
     const W_CI: usize = 5;
-    let w_subj: usize = if show_checks { 52 } else { 58 };
+
+    let w_proj = patches
+        .iter()
+        .map(|p| p.label.chars().count())
+        .max()
+        .unwrap_or(7)
+        .max(7)
+        .min(24);
+    let w_subj: usize = if show_checks {
+        52_usize.saturating_sub(w_proj)
+    } else {
+        58_usize.saturating_sub(w_proj)
+    };
 
     let tier_order = ["P1", "P2", "P3", "P4", "P5"];
 
@@ -112,13 +124,14 @@ pub fn print_queue(
             String::new()
         };
         println!(
-            "{BOLD}  {num:>W_NUM$}  {score:>W_SCORE$}  {ver:>W_VER$}  {age:>W_AGE$}{ci}  {subj:<w_subj$}  Notes{RESET}",
-            num = "#", score = "Score", ver = "Ver", age = "Age", ci = ci_hdr, subj = "Subject",
+            "{BOLD}  {num:>W_NUM$}  {score:>W_SCORE$}  {proj:<w_proj$}  {ver:>W_VER$}  {age:>W_AGE$}{ci}  {subj:<w_subj$}  Notes{RESET}",
+            num = "#", score = "Score", proj = "Project", ver = "Ver", age = "Age", ci = ci_hdr, subj = "Subject",
         );
         println!(
-            "{GRAY}  {s1}  {s2}  {s3}  {s4}{s5}  {s6}  {s7}{RESET}",
+            "{GRAY}  {s1}  {s2}  {sp}  {s3}  {s4}{s5}  {s6}  {s7}{RESET}",
             s1 = "─".repeat(W_NUM),
             s2 = "─".repeat(W_SCORE),
+            sp = "─".repeat(w_proj),
             s3 = "─".repeat(W_VER),
             s4 = "─".repeat(W_AGE),
             s5 = ci_sep,
@@ -164,9 +177,15 @@ pub fn print_queue(
             let subj_pad = format!("{link}{}", " ".repeat(pad_len));
             let notes = p.notes();
 
+            let proj_trunc = if p.label.chars().count() > w_proj {
+                format!("{}…", p.label.chars().take(w_proj.saturating_sub(1)).collect::<String>())
+            } else {
+                p.label.clone()
+            };
+
             println!(
-                "  {num:>W_NUM$}  {score}  {ver:>W_VER$}  {age:>W_AGE$}{ci}  {subj}  {GRAY}{notes}{RESET}",
-                num = counter, score = score_str, ver = ver_str, age = age_str,
+                "  {num:>W_NUM$}  {score}  {proj:<w_proj$}  {ver:>W_VER$}  {age:>W_AGE$}{ci}  {subj}  {GRAY}{notes}{RESET}",
+                num = counter, score = score_str, proj = proj_trunc, ver = ver_str, age = age_str,
                 ci = ci_str, subj = subj_pad,
             );
             counter += 1;

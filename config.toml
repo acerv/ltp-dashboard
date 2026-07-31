@@ -1,0 +1,19 @@
+port = 3030
+max_patches = 500
+checks = false
+
+[[instances]]
+url = "https://patchwork.kernel.org/api"
+project = "ltp"
+alias = "LTP (kernel.org)"
+max_connections = 8
+max_connections_per_host = 4
+timeout_secs = 60
+
+[[instances]]
+url = "https://patchwork.ozlabs.org/api"
+project = "ltp"
+alias = "LTP (ozlabs.org)"
+max_connections = 8
+max_connections_per_host = 4
+timeout_secs = 60

@@ -21,6 +21,7 @@ use regex::Regex;
 use std::collections::HashMap;
 use std::sync::OnceLock;
 
+use crate::config::PatchworkInstance;
 use crate::patchwork::RawPatch;
 
 // ---------------------------------------------------------------------------
@@ -212,6 +213,8 @@ pub fn is_cover(name: &str) -> bool {
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
 pub struct ScoredPatch {
+    pub project: String,
+    pub label: String,
     pub id: u64,
     pub name: String,
     pub submitter: String,
@@ -305,7 +308,7 @@ pub fn classify(score: i32) -> (&'static str, &'static str) {
 // Main scoring entry point
 // ---------------------------------------------------------------------------
 
-pub fn score_patch(patch: &RawPatch) -> ScoredPatch {
+pub fn score_patch(patch: &RawPatch, instance: &PatchworkInstance) -> ScoredPatch {
     let name = &patch.name;
     let state = &patch.state;
 
@@ -402,13 +405,16 @@ pub fn score_patch(patch: &RawPatch) -> ScoredPatch {
     let (tier, tier_label) = classify(score);
 
     let url = patch.web_url.clone().unwrap_or_else(|| {
+        let base_web = instance.url.trim_end_matches("/api");
         format!(
-            "https://patchwork.ozlabs.org/project/ltp/patch/{}/",
-            patch.id
+            "{}/project/{}/patch/{}/",
+            base_web, instance.project, patch.id
         )
     });
 
     ScoredPatch {
+        project: instance.project.clone(),
+        label: instance.display_name().to_string(),
         id: patch.id,
         name: name.clone(),
         submitter: patch.submitter.name.clone().unwrap_or_default(),
@@ -450,10 +456,10 @@ pub fn base_subject(name: &str) -> String {
 
 /// Mark patches that have a newer version from the same submitter as superseded.
 pub fn mark_superseded(patches: &mut [ScoredPatch]) {
-    // First pass: find the max version for each (submitter, base_subject) group.
-    let mut max_version: HashMap<(String, String), u32> = HashMap::new();
+    // First pass: find the max version for each (project, submitter, base_subject) group.
+    let mut max_version: HashMap<(String, String, String), u32> = HashMap::new();
     for p in patches.iter() {
-        let key = (p.submitter.clone(), base_subject(&p.name));
+        let key = (p.project.clone(), p.submitter.clone(), base_subject(&p.name));
         let entry = max_version.entry(key).or_insert(0);
         if p.version > *entry {
             *entry = p.version;
@@ -462,7 +468,7 @@ pub fn mark_superseded(patches: &mut [ScoredPatch]) {
 
     // Second pass: flag patches whose version is below the group max.
     for p in patches.iter_mut() {
-        let key = (p.submitter.clone(), base_subject(&p.name));
+        let key = (p.project.clone(), p.submitter.clone(), base_subject(&p.name));
         if let Some(&max_v) = max_version.get(&key) {
             if max_v > 1 && p.version < max_v {
                 p.superseded = true;
