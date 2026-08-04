@@ -299,7 +299,11 @@ struct PatchDetail {
 }
 
 /// Fetch diff sizes (changed lines) for all patches in parallel.
-pub async fn fetch_all_diff_sizes(client: &HttpClient, instance: &PatchworkInstance, patch_ids: &[u64]) -> HashMap<u64, u32> {
+pub async fn fetch_all_diff_sizes(
+    client: &HttpClient,
+    instance: &PatchworkInstance,
+    patch_ids: &[u64],
+) -> HashMap<u64, u32> {
     let tasks: Vec<_> = patch_ids
         .iter()
         .map(|&id| async move {
@@ -321,7 +325,11 @@ pub async fn fetch_all_diff_sizes(client: &HttpClient, instance: &PatchworkInsta
     out
 }
 
-async fn fetch_diff_lines_for_patch(client: &HttpClient, instance: &PatchworkInstance, patch_id: u64) -> anyhow::Result<u32> {
+async fn fetch_diff_lines_for_patch(
+    client: &HttpClient,
+    instance: &PatchworkInstance,
+    patch_id: u64,
+) -> anyhow::Result<u32> {
     let url = format!("{}/patches/{patch_id}/", instance.url);
     let detail: PatchDetail = fetch_json(client, &url).await?;
     let lines = detail.diff.as_deref().map(count_diff_lines).unwrap_or(0);

@@ -96,77 +96,89 @@ async fn fetch_and_score(
     let mut all_scored = Vec::new();
     let mut all_counts = HashMap::new();
 
-    let futs: Vec<_> = contexts.iter().map(|ctx| async move {
-        let (raw, counts) = patchwork::fetch_all_patches(&ctx.client, &ctx.instance, max_patches).await?;
+    let futs: Vec<_> = contexts
+        .iter()
+        .map(|ctx| async move {
+            let (raw, counts) =
+                patchwork::fetch_all_patches(&ctx.client, &ctx.instance, max_patches).await?;
 
-        let raw: Vec<_> = raw
-            .into_iter()
-            .filter(|p| !scoring::is_cover(&p.name))
-            .collect();
+            let raw: Vec<_> = raw
+                .into_iter()
+                .filter(|p| !scoring::is_cover(&p.name))
+                .collect();
 
-        let mut scored: Vec<scoring::ScoredPatch> = raw.iter().map(|p| scoring::score_patch(p, &ctx.instance)).collect();
+            let mut scored: Vec<scoring::ScoredPatch> = raw
+                .iter()
+                .map(|p| scoring::score_patch(p, &ctx.instance))
+                .collect();
 
-        let ids: Vec<u64> = scored.iter().map(|p| p.id).collect();
+            let ids: Vec<u64> = scored.iter().map(|p| p.id).collect();
 
-        // Always fetch comments and diff sizes in parallel; optionally fetch CI checks.
-        let comments_fut = patchwork::fetch_all_comment_tags(&ctx.client, &ctx.instance, &ids);
-        let diffs_fut = patchwork::fetch_all_diff_sizes(&ctx.client, &ctx.instance, &ids);
-        if fetch_checks {
-            eprintln!(
-                "[{}] Fetching CI checks, comments and diffs for {} patches…",
-                ctx.instance.project, scored.len()
-            );
-            let (comment_tags, diff_sizes, checks) = tokio::join!(
-                comments_fut,
-                diffs_fut,
-                patchwork::fetch_all_checks(&ctx.client, &ctx.instance, &ids),
-            );
-            for p in &mut scored {
-                if let Some(&(r, a)) = comment_tags.get(&p.id) {
-                    p.reviewed += r;
-                    p.acked += a;
-                }
-                if let Some(&lines) = diff_sizes.get(&p.id) {
-                    p.diff_lines = lines;
-                    let pts = scoring::score_diff_lines(lines);
-                    if pts != 0 {
-                        p.score += pts;
-                        p.reasons.push(format!("small-diff:{lines}(+{pts})"));
-                        let (tier, tier_label) = scoring::classify(p.score);
-                        p.tier = tier;
-                        p.tier_label = tier_label;
+            // Always fetch comments and diff sizes in parallel; optionally fetch CI checks.
+            let comments_fut = patchwork::fetch_all_comment_tags(&ctx.client, &ctx.instance, &ids);
+            let diffs_fut = patchwork::fetch_all_diff_sizes(&ctx.client, &ctx.instance, &ids);
+            if fetch_checks {
+                eprintln!(
+                    "[{}] Fetching CI checks, comments and diffs for {} patches…",
+                    ctx.instance.project,
+                    scored.len()
+                );
+                let (comment_tags, diff_sizes, checks) = tokio::join!(
+                    comments_fut,
+                    diffs_fut,
+                    patchwork::fetch_all_checks(&ctx.client, &ctx.instance, &ids),
+                );
+                for p in &mut scored {
+                    if let Some(&(r, a)) = comment_tags.get(&p.id) {
+                        p.reviewed += r;
+                        p.acked += a;
+                    }
+                    if let Some(&lines) = diff_sizes.get(&p.id) {
+                        p.diff_lines = lines;
+                        let pts = scoring::score_diff_lines(lines);
+                        if pts != 0 {
+                            p.score += pts;
+                            p.reasons.push(format!("small-diff:{lines}(+{pts})"));
+                            let (tier, tier_label) = scoring::classify(p.score);
+                            p.tier = tier;
+                            p.tier_label = tier_label;
+                        }
+                    }
+                    if let Some(&(passed, failed, total)) = checks.get(&p.id) {
+                        p.checks_passed = passed;
+                        p.checks_failed = failed;
+                        p.checks_total = total;
                     }
                 }
-                if let Some(&(passed, failed, total)) = checks.get(&p.id) {
-                    p.checks_passed = passed;
-                    p.checks_failed = failed;
-                    p.checks_total = total;
-                }
-            }
-        } else {
-            eprintln!("[{}] Fetching comments and diffs for {} patches…", ctx.instance.project, scored.len());
-            let (comment_tags, diff_sizes) = tokio::join!(comments_fut, diffs_fut);
-            for p in &mut scored {
-                if let Some(&(r, a)) = comment_tags.get(&p.id) {
-                    p.reviewed += r;
-                    p.acked += a;
-                }
-                if let Some(&lines) = diff_sizes.get(&p.id) {
-                    p.diff_lines = lines;
-                    let pts = scoring::score_diff_lines(lines);
-                    if pts != 0 {
-                        p.score += pts;
-                        p.reasons.push(format!("small-diff:{lines}(+{pts})"));
-                        let (tier, tier_label) = scoring::classify(p.score);
-                        p.tier = tier;
-                        p.tier_label = tier_label;
+            } else {
+                eprintln!(
+                    "[{}] Fetching comments and diffs for {} patches…",
+                    ctx.instance.project,
+                    scored.len()
+                );
+                let (comment_tags, diff_sizes) = tokio::join!(comments_fut, diffs_fut);
+                for p in &mut scored {
+                    if let Some(&(r, a)) = comment_tags.get(&p.id) {
+                        p.reviewed += r;
+                        p.acked += a;
+                    }
+                    if let Some(&lines) = diff_sizes.get(&p.id) {
+                        p.diff_lines = lines;
+                        let pts = scoring::score_diff_lines(lines);
+                        if pts != 0 {
+                            p.score += pts;
+                            p.reasons.push(format!("small-diff:{lines}(+{pts})"));
+                            let (tier, tier_label) = scoring::classify(p.score);
+                            p.tier = tier;
+                            p.tier_label = tier_label;
+                        }
                     }
                 }
             }
-        }
 
-        Ok::<_, anyhow::Error>((scored, counts))
-    }).collect();
+            Ok::<_, anyhow::Error>((scored, counts))
+        })
+        .collect();
 
     let results = futures::future::join_all(futs).await;
 
@@ -221,7 +233,8 @@ async fn index_handler(State(state): State<Arc<AppState>>) -> Response {
             if !state.refreshing.swap(true, Ordering::AcqRel) {
                 let state2 = state.clone();
                 tokio::spawn(async move {
-                    match build_page(&state2.contexts, state2.max_patches, state2.fetch_checks).await
+                    match build_page(&state2.contexts, state2.max_patches, state2.fetch_checks)
+                        .await
                     {
                         Ok(fresh) => {
                             let mut cache = state2.cache.write().await;
@@ -284,7 +297,11 @@ async fn build_page(
     eprintln!("Rendering {} patches…", scored.len());
 
     let generated_at = Local::now().format("%Y-%m-%d %H:%M:%S %Z").to_string();
-    let projects = contexts.iter().map(|c| c.instance.display_name().to_string()).collect::<Vec<_>>().join(", ");
+    let projects = contexts
+        .iter()
+        .map(|c| c.instance.display_name().to_string())
+        .collect::<Vec<_>>()
+        .join(", ");
     let data = templates::TemplateData {
         patches: &scored,
         generated_at,

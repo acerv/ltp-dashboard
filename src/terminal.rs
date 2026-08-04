@@ -51,6 +51,15 @@ fn tier_label(tier: &str) -> &'static str {
     }
 }
 
+fn get_series_index(name: &str) -> u32 {
+    static RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    let re = RE.get_or_init(|| regex::Regex::new(r"(?i)\[(?:[^\]]*[,\s])?(\d+)/(\d+)").unwrap());
+    re.captures(name)
+        .and_then(|c| c.get(1))
+        .and_then(|m| m.as_str().parse().ok())
+        .unwrap_or(0)
+}
+
 pub fn print_queue(
     patches: &[ScoredPatch],
     counts: &std::collections::HashMap<String, usize>,
@@ -95,19 +104,48 @@ pub fn print_queue(
     };
 
     let tier_order = ["P1", "P2", "P3", "P4", "P5"];
+    let mut printed = std::collections::HashSet::new();
 
     let mut counter = 1usize;
     for tid in tier_order {
         let color = tier_color(tid);
         let label = tier_label(tid);
-        let group: Vec<&ScoredPatch> = patches.iter().filter(|p| p.tier == tid).collect();
+
+        let mut to_print_in_tier = Vec::new();
+        for p in patches {
+            if p.tier != tid {
+                continue;
+            }
+            if printed.contains(&p.id) {
+                continue;
+            }
+
+            let mut series = Vec::new();
+            if let Some(sid) = p.series_id {
+                for other in patches {
+                    if other.series_id == Some(sid) && !printed.contains(&other.id) {
+                        series.push(other);
+                    }
+                }
+                series.sort_by_key(|sp| get_series_index(&sp.name));
+            } else {
+                series.push(p);
+            }
+
+            for sp in &series {
+                printed.insert(sp.id);
+            }
+
+            to_print_in_tier.push(series);
+        }
+        let group_len: usize = to_print_in_tier.iter().map(|s| s.len()).sum();
 
         println!(
             "\n{color}{BOLD}{label}{RESET}  {GRAY}({}){RESET}\n",
-            group.len()
+            group_len
         );
 
-        if group.is_empty() {
+        if to_print_in_tier.is_empty() {
             println!("  {DIM}None{RESET}");
             continue;
         }
@@ -139,56 +177,67 @@ pub fn print_queue(
             s7 = "─".repeat(22),
         );
 
-        for p in group {
-            let score_str = format!("{color}{BOLD}{:>W_SCORE$}{RESET}", p.score);
-            let ver_str = format!("v{}", p.version);
-            let age_str = format!("{}d", p.days);
-            let ci_str = if show_checks {
-                let s = if p.checks_total == 0 {
-                    format!("{GRAY}{:>W_CI$}{RESET}", "—")
-                } else if p.checks_passed == p.checks_total {
+        for series in to_print_in_tier {
+            for (i, p) in series.iter().enumerate() {
+                let score_str = format!("{color}{BOLD}{:>W_SCORE$}{RESET}", p.score);
+                let ver_str = format!("v{}", p.version);
+                let age_str = format!("{}d", p.days);
+                let ci_str = if show_checks {
+                    let s = if p.checks_total == 0 {
+                        format!("{GRAY}{:>W_CI$}{RESET}", "—")
+                    } else if p.checks_passed == p.checks_total {
+                        format!(
+                            "{YELLOW}{:>W_CI$}{RESET}",
+                            format!("{}/{}", p.checks_passed, p.checks_total)
+                        )
+                    } else if p.checks_failed > 0 {
+                        format!(
+                            "{RED}{:>W_CI$}{RESET}",
+                            format!("{}/{}", p.checks_passed, p.checks_total)
+                        )
+                    } else {
+                        format!(
+                            "{YELLOW}{:>W_CI$}{RESET}",
+                            format!("{}/{}", p.checks_passed, p.checks_total)
+                        )
+                    };
+                    format!("  {s}")
+                } else {
+                    String::new()
+                };
+                let prefix = if i > 0 { "  | " } else { "" };
+                let prefix_len = prefix.len();
+                let avail_w = w_subj.saturating_sub(prefix_len);
+                let name_trunc = if p.name.len() > avail_w {
+                    format!("{}…", &p.name[..avail_w.saturating_sub(1)])
+                } else {
+                    p.name.clone()
+                };
+                let link = format!("\x1b]8;;{}\x1b\\{name_trunc}\x1b]8;;\x1b\\", p.url);
+                let vis_len = prefix_len + name_trunc.len();
+                let pad_len = w_subj.saturating_sub(vis_len);
+                let subj_pad = format!("{DIM}{prefix}{RESET}{link}{}", " ".repeat(pad_len));
+                let notes = p.notes();
+
+                let proj_trunc = if p.label.chars().count() > w_proj {
                     format!(
-                        "{YELLOW}{:>W_CI$}{RESET}",
-                        format!("{}/{}", p.checks_passed, p.checks_total)
-                    )
-                } else if p.checks_failed > 0 {
-                    format!(
-                        "{RED}{:>W_CI$}{RESET}",
-                        format!("{}/{}", p.checks_passed, p.checks_total)
+                        "{}…",
+                        p.label
+                            .chars()
+                            .take(w_proj.saturating_sub(1))
+                            .collect::<String>()
                     )
                 } else {
-                    format!(
-                        "{YELLOW}{:>W_CI$}{RESET}",
-                        format!("{}/{}", p.checks_passed, p.checks_total)
-                    )
+                    p.label.clone()
                 };
-                format!("  {s}")
-            } else {
-                String::new()
-            };
-            let name_trunc = if p.name.len() > w_subj {
-                format!("{}…", &p.name[..w_subj.saturating_sub(1)])
-            } else {
-                p.name.clone()
-            };
-            let link = format!("\x1b]8;;{}\x1b\\{name_trunc}\x1b]8;;\x1b\\", p.url);
-            let vis_len = name_trunc.len();
-            let pad_len = w_subj.saturating_sub(vis_len);
-            let subj_pad = format!("{link}{}", " ".repeat(pad_len));
-            let notes = p.notes();
 
-            let proj_trunc = if p.label.chars().count() > w_proj {
-                format!("{}…", p.label.chars().take(w_proj.saturating_sub(1)).collect::<String>())
-            } else {
-                p.label.clone()
-            };
-
-            println!(
-                "  {num:>W_NUM$}  {score}  {proj:<w_proj$}  {ver:>W_VER$}  {age:>W_AGE$}{ci}  {subj}  {GRAY}{notes}{RESET}",
-                num = counter, score = score_str, proj = proj_trunc, ver = ver_str, age = age_str,
-                ci = ci_str, subj = subj_pad,
-            );
-            counter += 1;
+                println!(
+                    "  {num:>W_NUM$}  {score}  {proj:<w_proj$}  {ver:>W_VER$}  {age:>W_AGE$}{ci}  {subj}  {GRAY}{notes}{RESET}",
+                    num = counter, score = score_str, proj = proj_trunc, ver = ver_str, age = age_str,
+                    ci = ci_str, subj = subj_pad,
+                );
+                counter += 1;
+            }
         }
     }
 

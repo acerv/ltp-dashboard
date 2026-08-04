@@ -459,7 +459,11 @@ pub fn mark_superseded(patches: &mut [ScoredPatch]) {
     // First pass: find the max version for each (project, submitter, base_subject) group.
     let mut max_version: HashMap<(String, String, String), u32> = HashMap::new();
     for p in patches.iter() {
-        let key = (p.project.clone(), p.submitter.clone(), base_subject(&p.name));
+        let key = (
+            p.project.clone(),
+            p.submitter.clone(),
+            base_subject(&p.name),
+        );
         let entry = max_version.entry(key).or_insert(0);
         if p.version > *entry {
             *entry = p.version;
@@ -468,7 +472,11 @@ pub fn mark_superseded(patches: &mut [ScoredPatch]) {
 
     // Second pass: flag patches whose version is below the group max.
     for p in patches.iter_mut() {
-        let key = (p.project.clone(), p.submitter.clone(), base_subject(&p.name));
+        let key = (
+            p.project.clone(),
+            p.submitter.clone(),
+            base_subject(&p.name),
+        );
         if let Some(&max_v) = max_version.get(&key) {
             if max_v > 1 && p.version < max_v {
                 p.superseded = true;
