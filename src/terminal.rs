@@ -69,7 +69,8 @@ pub fn print_queue(
     let total = patches.len();
     let new_count = counts.get("new").copied().unwrap_or(0);
     let under_count = counts.get("under-review").copied().unwrap_or(0);
-    let needs_count = counts.get("needs-review-ack").copied().unwrap_or(0);
+    let needs_count = counts.get("needs-review-ack").copied().unwrap_or(0)
+        + counts.get("needs-ack").copied().unwrap_or(0);
     let stale_count = patches.iter().filter(|p| p.days > 60).count();
     let rfc_count = patches.iter().filter(|p| p.rfc).count();
     let waiting_count = patches.iter().filter(|p| p.reviewed >= 1).count();

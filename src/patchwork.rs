@@ -25,8 +25,8 @@ use serde::Deserialize;
 use std::collections::HashMap;
 use std::time::Duration;
 
-// States: new, under-review, and needs-review-ack (numeric ID 11)
-const STATES: &[&str] = &["new", "under-review", "11"];
+// States: new, under-review, needs-review-ack (numeric ID 11), and needs-ack
+const STATES: &[&str] = &["new", "under-review", "11", "needs-ack"];
 
 // ---------------------------------------------------------------------------
 // HTTP helpers
