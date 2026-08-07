@@ -134,6 +134,7 @@ const TEMPLATE: &str = r#"<!DOCTYPE html>
     .patch-table .col-proj   { text-align: center; }
     .patch-table .col-ver    { text-align: center; color: #aaa; }
     .patch-table .col-age    { text-align: right;  color: #888; white-space: nowrap; }
+    .patch-table .col-subm   { text-align: left; color: #aaa; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .patch-table .col-ci     { text-align: center; }
     .ci-pass { color: #34d399; font-weight: 700; font-size: 0.8rem; }
     .ci-fail { color: #f87171; font-weight: 700; font-size: 0.8rem; }
@@ -284,6 +285,7 @@ const TEMPLATE: &str = r#"<!DOCTYPE html>
       <col style="width:76px">
       <col style="width:52px">
       <col style="width:64px">
+      <col style="width:120px">
       {% if show_checks %}<col style="width:80px">{% endif %}
       <col>
     </colgroup>
@@ -295,6 +297,7 @@ const TEMPLATE: &str = r#"<!DOCTYPE html>
         <th class="col-proj">Project</th>
         <th class="col-ver">Ver</th>
         <th class="col-age">Age</th>
+        <th class="col-subm">Submitter</th>
         {% if show_checks %}<th class="col-ci">CI</th>{% endif %}
         <th>Subject</th>
       </tr>
@@ -302,7 +305,7 @@ const TEMPLATE: &str = r#"<!DOCTYPE html>
     <tbody>
       {% if tier.patches | length == 0 %}
       <tr class="empty-row">
-        <td colspan="{{ 7 + (show_checks | int) }}">No patches in this tier</td>
+        <td colspan="{{ 8 + (show_checks | int) }}">No patches in this tier</td>
       </tr>
       {% else %}
       {% for p in tier.patches %}
@@ -314,6 +317,7 @@ const TEMPLATE: &str = r#"<!DOCTYPE html>
         <td class="col-proj"><span class="sbadge sbadge-project">{{ p.project }}</span></td>
         <td class="col-ver">v{{ p.version }}</td>
         <td class="col-age">{{ p.days }}d</td>
+        <td class="col-subm" title="{{ p.submitter }}">{{ p.submitter }}</td>
         {% if show_checks %}
         <td class="col-ci">
           {% if p.checks_total == 0 %}<span class="ci-none">—</span>
@@ -344,6 +348,7 @@ const TEMPLATE: &str = r#"<!DOCTYPE html>
         <td class="col-proj"><span class="sbadge sbadge-project">{{ c.project }}</span></td>
         <td class="col-ver">v{{ c.version }}</td>
         <td class="col-age">{{ c.days }}d</td>
+        <td class="col-subm" title="{{ c.submitter }}">{{ c.submitter }}</td>
         {% if show_checks %}
         <td class="col-ci">
           {% if c.checks_total == 0 %}<span class="ci-none">—</span>
@@ -375,6 +380,7 @@ const TEMPLATE: &str = r#"<!DOCTYPE html>
         <td class="col-proj"><span class="sbadge sbadge-project">{{ p.project }}</span></td>
         <td class="col-ver">v{{ p.version }}</td>
         <td class="col-age">{{ p.days }}d</td>
+        <td class="col-subm" title="{{ p.submitter }}">{{ p.submitter }}</td>
         {% if show_checks %}
         <td class="col-ci">
           {% if p.checks_total == 0 %}<span class="ci-none">—</span>
@@ -463,6 +469,7 @@ fn patch_context(p: &ScoredPatch, num: usize) -> Value {
         superseded => p.superseded,
         diff_lines => p.diff_lines,
         name => &p.name,
+        submitter => &p.submitter,
         url => &p.url,
         reasons => p.reasons.join(" · "),
         checks_passed => p.checks_passed,

@@ -76,19 +76,11 @@ pub fn print_queue(
     let waiting_count = patches.iter().filter(|p| p.reviewed >= 1).count();
     let superseded_count = patches.iter().filter(|p| p.superseded).count();
 
-    let rule = "─".repeat(80);
-
-    println!("\n{BOLD}LTP Patch Review Queue — {today}{RESET}\n");
-    println!(
-        "Fetched {BOLD}{total}{RESET} patches  \
-         (new: {new_count}  under-review: {under_count}  needs-review: {needs_count})\n"
-    );
-    println!("{rule}");
-
     const W_NUM: usize = 3;
     const W_SCORE: usize = 5;
     const W_VER: usize = 3;
     const W_AGE: usize = 5;
+    const W_SUBM: usize = 16;
     const W_CI: usize = 5;
 
     let w_proj = patches
@@ -99,10 +91,19 @@ pub fn print_queue(
         .max(7)
         .min(24);
     let w_subj: usize = if show_checks {
-        52_usize.saturating_sub(w_proj)
+        70_usize.saturating_sub(w_proj)
     } else {
-        58_usize.saturating_sub(w_proj)
+        76_usize.saturating_sub(w_proj)
     };
+
+    let rule = "─".repeat(100);
+
+    println!("\n{BOLD}LTP Patch Review Queue — {today}{RESET}\n");
+    println!(
+        "Fetched {BOLD}{total}{RESET} patches  \
+         (new: {new_count}  under-review: {under_count}  needs-review: {needs_count})\n"
+    );
+    println!("{rule}");
 
     let tier_order = ["P1", "P2", "P3", "P4", "P5"];
     let mut printed = std::collections::HashSet::new();
@@ -163,16 +164,17 @@ pub fn print_queue(
             String::new()
         };
         println!(
-            "{BOLD}  {num:>W_NUM$}  {score:>W_SCORE$}  {proj:<w_proj$}  {ver:>W_VER$}  {age:>W_AGE$}{ci}  {subj:<w_subj$}  Notes{RESET}",
-            num = "#", score = "Score", proj = "Project", ver = "Ver", age = "Age", ci = ci_hdr, subj = "Subject",
+            "{BOLD}  {num:>W_NUM$}  {score:>W_SCORE$}  {proj:<w_proj$}  {ver:>W_VER$}  {age:>W_AGE$}  {subm:<W_SUBM$}{ci}  {subj:<w_subj$}  Notes{RESET}",
+            num = "#", score = "Score", proj = "Project", ver = "Ver", age = "Age", subm = "Submitter", ci = ci_hdr, subj = "Subject",
         );
         println!(
-            "{GRAY}  {s1}  {s2}  {sp}  {s3}  {s4}{s5}  {s6}  {s7}{RESET}",
+            "{GRAY}  {s1}  {s2}  {sp}  {s3}  {s4}  {s_subm}{s5}  {s6}  {s7}{RESET}",
             s1 = "─".repeat(W_NUM),
             s2 = "─".repeat(W_SCORE),
             sp = "─".repeat(w_proj),
             s3 = "─".repeat(W_VER),
             s4 = "─".repeat(W_AGE),
+            s_subm = "─".repeat(W_SUBM),
             s5 = ci_sep,
             s6 = "─".repeat(w_subj),
             s7 = "─".repeat(22),
@@ -232,9 +234,21 @@ pub fn print_queue(
                     p.label.clone()
                 };
 
+                let subm_trunc = if p.submitter.chars().count() > W_SUBM {
+                    format!(
+                        "{}…",
+                        p.submitter
+                            .chars()
+                            .take(W_SUBM.saturating_sub(1))
+                            .collect::<String>()
+                    )
+                } else {
+                    p.submitter.clone()
+                };
+
                 println!(
-                    "  {num:>W_NUM$}  {score}  {proj:<w_proj$}  {ver:>W_VER$}  {age:>W_AGE$}{ci}  {subj}  {GRAY}{notes}{RESET}",
-                    num = counter, score = score_str, proj = proj_trunc, ver = ver_str, age = age_str,
+                    "  {num:>W_NUM$}  {score}  {proj:<w_proj$}  {ver:>W_VER$}  {age:>W_AGE$}  {GRAY}{subm:<W_SUBM$}{RESET}{ci}  {subj}  {GRAY}{notes}{RESET}",
+                    num = counter, score = score_str, proj = proj_trunc, ver = ver_str, age = age_str, subm = subm_trunc,
                     ci = ci_str, subj = subj_pad,
                 );
                 counter += 1;
