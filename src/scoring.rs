@@ -72,7 +72,7 @@ fn include_subject_re() -> &'static Regex {
 
 fn subject_tag_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
-    RE.get_or_init(|| Regex::new(r"^\s*\[.*?\]\s*").unwrap())
+    RE.get_or_init(|| Regex::new(r"^(?:\s*\[[^\]]*\]\s*)+").unwrap())
 }
 
 // ---------------------------------------------------------------------------
@@ -482,5 +482,135 @@ pub fn mark_superseded(patches: &mut [ScoredPatch]) {
                 p.superseded = true;
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_base_subject() {
+        assert_eq!(
+            base_subject("[PATCH] syscalls/read01: fix return value"),
+            "syscalls/read01: fix return value"
+        );
+        assert_eq!(
+            base_subject("[PATCH v2] syscalls/read01: fix return value"),
+            "syscalls/read01: fix return value"
+        );
+        assert_eq!(
+            base_subject("[LTP] [PATCH v2 1/3] syscalls/read01: fix return value"),
+            "syscalls/read01: fix return value"
+        );
+        assert_eq!(
+            base_subject("[PATCH,v3,2/4] syscalls/read01: fix return value"),
+            "syscalls/read01: fix return value"
+        );
+    }
+
+    #[test]
+    fn test_mark_superseded() {
+        let mut patches = vec![
+            ScoredPatch {
+                project: "ltp".to_string(),
+                label: "LTP".to_string(),
+                id: 1,
+                name: "[PATCH 1/2] syscalls/read01: fix bug".to_string(),
+                submitter: "Alice".to_string(),
+                date: "2026-01-01T00:00:00Z".to_string(),
+                days: 10,
+                state: "new".to_string(),
+                version: 1,
+                rfc: false,
+                series_id: None,
+                series_size: 1,
+                reviewed: 0,
+                acked: 0,
+                delegated: false,
+                fix_keyword: true,
+                new_test: false,
+                sob_count: 1,
+                lib_pts: 0,
+                diff_lines: 10,
+                checks_passed: 0,
+                checks_failed: 0,
+                checks_total: 0,
+                score: 50,
+                reasons: vec![],
+                url: "http://example.com/1".to_string(),
+                tier: "P3",
+                tier_label: "NORMAL",
+                superseded: false,
+            },
+            ScoredPatch {
+                project: "ltp".to_string(),
+                label: "LTP".to_string(),
+                id: 2,
+                name: "[PATCH v2 1/2] syscalls/read01: fix bug".to_string(),
+                submitter: "Alice".to_string(),
+                date: "2026-01-02T00:00:00Z".to_string(),
+                days: 9,
+                state: "new".to_string(),
+                version: 2,
+                rfc: false,
+                series_id: None,
+                series_size: 1,
+                reviewed: 0,
+                acked: 0,
+                delegated: false,
+                fix_keyword: true,
+                new_test: false,
+                sob_count: 1,
+                lib_pts: 0,
+                diff_lines: 10,
+                checks_passed: 0,
+                checks_failed: 0,
+                checks_total: 0,
+                score: 65,
+                reasons: vec![],
+                url: "http://example.com/2".to_string(),
+                tier: "P2",
+                tier_label: "HIGH",
+                superseded: false,
+            },
+            ScoredPatch {
+                project: "ltp".to_string(),
+                label: "LTP".to_string(),
+                id: 3,
+                name: "[PATCH 1/1] syscalls/read01: fix bug".to_string(),
+                submitter: "Bob".to_string(),
+                date: "2026-01-03T00:00:00Z".to_string(),
+                days: 8,
+                state: "new".to_string(),
+                version: 1,
+                rfc: false,
+                series_id: None,
+                series_size: 1,
+                reviewed: 0,
+                acked: 0,
+                delegated: false,
+                fix_keyword: true,
+                new_test: false,
+                sob_count: 1,
+                lib_pts: 0,
+                diff_lines: 10,
+                checks_passed: 0,
+                checks_failed: 0,
+                checks_total: 0,
+                score: 50,
+                reasons: vec![],
+                url: "http://example.com/3".to_string(),
+                tier: "P3",
+                tier_label: "NORMAL",
+                superseded: false,
+            },
+        ];
+
+        mark_superseded(&mut patches);
+
+        assert!(patches[0].superseded);
+        assert!(!patches[1].superseded);
+        assert!(!patches[2].superseded);
     }
 }

@@ -216,7 +216,8 @@ pub fn print_queue(
                 } else {
                     p.name.clone()
                 };
-                let link = format!("\x1b]8;;{}\x1b\\{name_trunc}\x1b]8;;\x1b\\", p.url);
+                let (subj_color, subj_reset) = if p.superseded { (RED, RESET) } else { ("", "") };
+                let link = format!("\x1b]8;;{}\x1b\\{subj_color}{name_trunc}{subj_reset}\x1b]8;;\x1b\\", p.url);
                 let vis_len = prefix_len + name_trunc.len();
                 let pad_len = w_subj.saturating_sub(vis_len);
                 let subj_pad = format!("{DIM}{prefix}{RESET}{link}{}", " ".repeat(pad_len));

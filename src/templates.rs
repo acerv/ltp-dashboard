@@ -176,6 +176,8 @@ const TEMPLATE: &str = r#"<!DOCTYPE html>
       font-size: 1rem;
     }
     .subject-link:hover { color: #ffffff; text-decoration: underline; }
+    tr.is-superseded .subject-link { color: #f87171; }
+    tr.is-superseded .subject-link:hover { color: #fca5a5; text-decoration: underline; }
 
     /* Subject inline badges */
     .sbadge {
@@ -341,7 +343,7 @@ const TEMPLATE: &str = r#"<!DOCTYPE html>
         </td>
       </tr>
       {% for c in p.patches %}
-      <tr class="tier-{{ c.tier }} series-detail series-{{ p.series_id }}{% if c.reviewed > 0 or c.acked > 0 %} has-review{% endif %}" style="display:none">
+      <tr class="tier-{{ c.tier }} series-detail series-{{ p.series_id }}{% if c.reviewed > 0 or c.acked > 0 %} has-review{% endif %}{% if c.superseded %} is-superseded{% endif %}" style="display:none">
         <td class="col-num"></td>
         <td class="col-score">{{ c.score }}</td>
         <td class="col-tier"><span class="badge badge-{{ c.tier }}">{{ c.tier }}</span></td>
@@ -366,6 +368,7 @@ const TEMPLATE: &str = r#"<!DOCTYPE html>
           {% if c.state == "under-review" %}<span class="sbadge sbadge-review">Under Review</span>{% endif %}
           {% if c.reviewed > 0 %}<span class="sbadge sbadge-reviewed">Reviewed-by</span>{% endif %}
           {% if c.acked > 0 %}<span class="sbadge sbadge-acked">Acked-by</span>{% endif %}
+          {% if c.superseded %}<span class="sbadge sbadge-superseded">Superseded</span>{% endif %}
           {% if c.diff_lines > 200 %}<span class="sbadge sbadge-largediff">{{ c.diff_lines }} lines</span>
           {% elif c.diff_lines > 0 and c.diff_lines <= 50 %}<span class="sbadge sbadge-smalldiff">{{ c.diff_lines }} lines</span>{% endif %}
           <div class="reasons">{{ c.reasons }}</div>
@@ -626,4 +629,56 @@ pub fn render_index(data: &TemplateData<'_>) -> Result<String, minijinja::Error>
     })?;
 
     Ok(html)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_render_superseded() {
+        let patches = vec![ScoredPatch {
+            project: "ltp".to_string(),
+            label: "LTP".to_string(),
+            id: 1,
+            name: "[PATCH] syscalls/read01: fix bug".to_string(),
+            submitter: "Alice".to_string(),
+            date: "2026-01-01T00:00:00Z".to_string(),
+            days: 10,
+            state: "new".to_string(),
+            version: 1,
+            rfc: false,
+            series_id: None,
+            series_size: 1,
+            reviewed: 0,
+            acked: 0,
+            delegated: false,
+            fix_keyword: true,
+            new_test: false,
+            sob_count: 1,
+            lib_pts: 0,
+            diff_lines: 10,
+            checks_passed: 0,
+            checks_failed: 0,
+            checks_total: 0,
+            score: 50,
+            reasons: vec![],
+            url: "http://example.com/1".to_string(),
+            tier: "P3",
+            tier_label: "NORMAL",
+            superseded: true,
+        }];
+
+        let data = TemplateData {
+            patches: &patches,
+            generated_at: "2026-01-01 00:00:00 UTC".to_string(),
+            show_checks: false,
+            projects: "LTP".to_string(),
+        };
+
+        let html = render_index(&data).unwrap();
+        assert!(html.contains("is-superseded"));
+        assert!(html.contains("sbadge-superseded"));
+        assert!(html.contains("Superseded"));
+    }
 }
