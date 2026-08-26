@@ -86,11 +86,11 @@ pub struct SeriesRef {
 
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct Tags {
-    #[serde(rename = "reviewed-by-count", default)]
+    #[serde(rename = "Reviewed-by", alias = "reviewed-by-count", default)]
     pub reviewed_by_count: u32,
-    #[serde(rename = "acked-by-count", default)]
+    #[serde(rename = "Acked-by", alias = "acked-by-count", default)]
     pub acked_by_count: u32,
-    #[serde(rename = "signed-off-by-count", default)]
+    #[serde(rename = "Signed-off-by", alias = "signed-off-by-count", default)]
     pub signed_off_by_count: u32,
 }
 
@@ -220,8 +220,25 @@ async fn fetch_state_patches(
 }
 
 // ---------------------------------------------------------------------------
-// Comments (email replies) — Reviewed-by / Acked-by detection
+// Comments (email replies) & Commit Messages — Reviewed-by / Acked-by detection
 // ---------------------------------------------------------------------------
+
+pub fn scan_tags(text: &str) -> (u32, u32, u32) {
+    let mut reviewed = 0u32;
+    let mut acked = 0u32;
+    let mut sob = 0u32;
+    for line in text.lines() {
+        let l = line.trim();
+        if l.starts_with("Reviewed-by:") {
+            reviewed += 1;
+        } else if l.starts_with("Acked-by:") {
+            acked += 1;
+        } else if l.starts_with("Signed-off-by:") {
+            sob += 1;
+        }
+    }
+    (reviewed, acked, sob)
+}
 
 #[derive(Debug, Deserialize)]
 struct CommentEntry {
@@ -277,37 +294,43 @@ async fn fetch_comment_tags_for_patch(
     let mut reviewed = 0u32;
     let mut acked = 0u32;
     for c in &comments {
-        for line in c.content.lines() {
-            let l = line.trim();
-            if l.starts_with("Reviewed-by:") {
-                reviewed += 1;
-            } else if l.starts_with("Acked-by:") {
-                acked += 1;
-            }
-        }
+        let (r, a, _) = scan_tags(&c.content);
+        reviewed += r;
+        acked += a;
     }
     Ok((reviewed, acked))
 }
 
 // ---------------------------------------------------------------------------
-// Diff size
+// Patch details (diff size & commit message tags)
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Deserialize)]
 struct PatchDetail {
     diff: Option<String>,
+    content: Option<String>,
+    #[serde(default)]
+    tags: Tags,
 }
 
-/// Fetch diff sizes (changed lines) for all patches in parallel.
-pub async fn fetch_all_diff_sizes(
+#[derive(Debug, Clone, Default)]
+pub struct PatchDetails {
+    pub diff_lines: u32,
+    pub reviewed: u32,
+    pub acked: u32,
+    pub sob_count: u32,
+}
+
+/// Fetch patch details (diff sizes and commit message tags) for all patches in parallel.
+pub async fn fetch_all_patch_details(
     client: &HttpClient,
     instance: &PatchworkInstance,
     patch_ids: &[u64],
-) -> HashMap<u64, u32> {
+) -> HashMap<u64, PatchDetails> {
     let tasks: Vec<_> = patch_ids
         .iter()
         .map(|&id| async move {
-            let result = fetch_diff_lines_for_patch(client, instance, id).await;
+            let result = fetch_patch_details_for_patch(client, instance, id).await;
             (id, result)
         })
         .collect();
@@ -316,24 +339,37 @@ pub async fn fetch_all_diff_sizes(
     let mut out = HashMap::with_capacity(patch_ids.len());
     for (id, result) in results {
         match result {
-            Ok(lines) => {
-                out.insert(id, lines);
+            Ok(details) => {
+                out.insert(id, details);
             }
-            Err(e) => eprintln!("Warning: diff fetch failed for patch {id}: {e}"),
+            Err(e) => eprintln!("Warning: details fetch failed for patch {id}: {e}"),
         }
     }
     out
 }
 
-async fn fetch_diff_lines_for_patch(
+async fn fetch_patch_details_for_patch(
     client: &HttpClient,
     instance: &PatchworkInstance,
     patch_id: u64,
-) -> anyhow::Result<u32> {
+) -> anyhow::Result<PatchDetails> {
     let url = format!("{}/patches/{patch_id}/", instance.url);
     let detail: PatchDetail = fetch_json(client, &url).await?;
-    let lines = detail.diff.as_deref().map(count_diff_lines).unwrap_or(0);
-    Ok(lines)
+    let diff_lines = detail.diff.as_deref().map(count_diff_lines).unwrap_or(0);
+    let (mut reviewed, mut acked, mut sob_count) = detail
+        .content
+        .as_deref()
+        .map(scan_tags)
+        .unwrap_or((0, 0, 0));
+    reviewed += detail.tags.reviewed_by_count;
+    acked += detail.tags.acked_by_count;
+    sob_count += detail.tags.signed_off_by_count;
+    Ok(PatchDetails {
+        diff_lines,
+        reviewed,
+        acked,
+        sob_count,
+    })
 }
 
 fn count_diff_lines(diff: &str) -> u32 {
@@ -405,4 +441,36 @@ async fn fetch_checks_for_patch(
     let passed = results.iter().filter(|c| c.state == "success").count() as u32;
     let failed = results.iter().filter(|c| c.state == "fail").count() as u32;
     Ok((passed, failed, total))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_scan_tags_from_commit_message() {
+        let content = r#"Convert the test to the new LTP API.
+
+Reviewed-by: Cyril Hrubis <chrubis@suse.cz>
+Reviewed-by: Petr Vorel <pvorel@suse.cz>
+Acked-by: Jan Kara <jack@suse.cz>
+Signed-off-by: Andrea Cervesato <andrea.cervesato@suse.com>
+---
+ testcases/kernel/syscalls/mremap/mremap01.c | 281 +++++++++-------------------
+ 1 file changed, 85 insertions(+), 196 deletions(-)
+"#;
+        let (reviewed, acked, sob) = scan_tags(content);
+        assert_eq!(reviewed, 2);
+        assert_eq!(acked, 1);
+        assert_eq!(sob, 1);
+    }
+
+    #[test]
+    fn test_tags_deserialization() {
+        let json = r#"{"Reviewed-by": 2, "Acked-by": 1, "Signed-off-by": 3}"#;
+        let tags: Tags = serde_json::from_str(json).unwrap();
+        assert_eq!(tags.reviewed_by_count, 2);
+        assert_eq!(tags.acked_by_count, 1);
+        assert_eq!(tags.signed_off_by_count, 3);
+    }
 }

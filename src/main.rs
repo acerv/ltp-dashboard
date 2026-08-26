@@ -114,18 +114,18 @@ async fn fetch_and_score(
 
             let ids: Vec<u64> = scored.iter().map(|p| p.id).collect();
 
-            // Always fetch comments and diff sizes in parallel; optionally fetch CI checks.
+            // Always fetch comments and patch details in parallel; optionally fetch CI checks.
             let comments_fut = patchwork::fetch_all_comment_tags(&ctx.client, &ctx.instance, &ids);
-            let diffs_fut = patchwork::fetch_all_diff_sizes(&ctx.client, &ctx.instance, &ids);
+            let details_fut = patchwork::fetch_all_patch_details(&ctx.client, &ctx.instance, &ids);
             if fetch_checks {
                 eprintln!(
                     "[{}] Fetching CI checks, comments and diffs for {} patches…",
                     ctx.instance.project,
                     scored.len()
                 );
-                let (comment_tags, diff_sizes, checks) = tokio::join!(
+                let (comment_tags, patch_details, checks) = tokio::join!(
                     comments_fut,
-                    diffs_fut,
+                    details_fut,
                     patchwork::fetch_all_checks(&ctx.client, &ctx.instance, &ids),
                 );
                 for p in &mut scored {
@@ -133,17 +133,13 @@ async fn fetch_and_score(
                         p.reviewed += r;
                         p.acked += a;
                     }
-                    if let Some(&lines) = diff_sizes.get(&p.id) {
-                        p.diff_lines = lines;
-                        let pts = scoring::score_diff_lines(lines);
-                        if pts != 0 {
-                            p.score += pts;
-                            p.reasons.push(format!("small-diff:{lines}(+{pts})"));
-                            let (tier, tier_label) = scoring::classify(p.score);
-                            p.tier = tier;
-                            p.tier_label = tier_label;
-                        }
+                    if let Some(d) = patch_details.get(&p.id) {
+                        p.reviewed += d.reviewed;
+                        p.acked += d.acked;
+                        p.sob_count = p.sob_count.max(d.sob_count);
+                        p.diff_lines = d.diff_lines;
                     }
+                    p.recalculate_score();
                     if let Some(&(passed, failed, total)) = checks.get(&p.id) {
                         p.checks_passed = passed;
                         p.checks_failed = failed;
@@ -156,23 +152,19 @@ async fn fetch_and_score(
                     ctx.instance.project,
                     scored.len()
                 );
-                let (comment_tags, diff_sizes) = tokio::join!(comments_fut, diffs_fut);
+                let (comment_tags, patch_details) = tokio::join!(comments_fut, details_fut);
                 for p in &mut scored {
                     if let Some(&(r, a)) = comment_tags.get(&p.id) {
                         p.reviewed += r;
                         p.acked += a;
                     }
-                    if let Some(&lines) = diff_sizes.get(&p.id) {
-                        p.diff_lines = lines;
-                        let pts = scoring::score_diff_lines(lines);
-                        if pts != 0 {
-                            p.score += pts;
-                            p.reasons.push(format!("small-diff:{lines}(+{pts})"));
-                            let (tier, tier_label) = scoring::classify(p.score);
-                            p.tier = tier;
-                            p.tier_label = tier_label;
-                        }
+                    if let Some(d) = patch_details.get(&p.id) {
+                        p.reviewed += d.reviewed;
+                        p.acked += d.acked;
+                        p.sob_count = p.sob_count.max(d.sob_count);
+                        p.diff_lines = d.diff_lines;
                     }
+                    p.recalculate_score();
                 }
             }
 

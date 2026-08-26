@@ -284,6 +284,100 @@ impl ScoredPatch {
             parts.join(", ")
         }
     }
+
+    pub fn recalculate_score(&mut self) {
+        let mut score: i32 = 0;
+        let mut reasons: Vec<String> = Vec::new();
+
+        // Rule 1 – version
+        let v = score_version(self.version);
+        if v != 0 {
+            score += v;
+            reasons.push(format!("v{}(+{v})", self.version));
+        }
+
+        // Rule 2 – fix keywords
+        if self.fix_keyword {
+            score += 45;
+            reasons.push("fix(+45)".to_string());
+        }
+
+        // Rule 2b – new/rewrite/add test
+        if self.new_test {
+            score += 15;
+            reasons.push("new-test(+15)".to_string());
+        }
+
+        // Rule 3 – age
+        let a = score_age(self.days);
+        if a != 0 {
+            score += a;
+            reasons.push(format!("age:{}d(+{a})", self.days));
+        }
+
+        // Rule 4 – RFC
+        if self.rfc {
+            score -= 25;
+            reasons.push("RFC(-25)".to_string());
+        }
+
+        // Rule 5 – lib/infra
+        if self.lib_pts != 0 {
+            score += self.lib_pts;
+            reasons.push(format!("lib(+{})", self.lib_pts));
+        }
+
+        // Rule 6 – series size
+        let s = score_series(self.series_size);
+        if s != 0 {
+            score += s;
+            reasons.push(format!("series:{}({s:+})", self.series_size));
+        }
+
+        // Rule 7 – review tags
+        if self.reviewed >= 1 {
+            score += 20;
+            reasons.push("Reviewed-by(+20)".to_string());
+        }
+        if self.acked >= 1 {
+            score += 10;
+            reasons.push("Acked-by(+10)".to_string());
+        }
+
+        // Rule 7b – SOB count
+        let sob_pts = score_sob(self.sob_count);
+        if sob_pts != 0 {
+            score += sob_pts;
+            reasons.push(format!("SOB:{}(+{sob_pts})", self.sob_count));
+        }
+
+        // Rule 8 – delegated
+        if self.delegated {
+            score -= 10;
+            reasons.push("delegated(-10)".to_string());
+        }
+
+        // Rule 9 – state
+        if self.state == "under-review" {
+            score -= 20;
+            reasons.push("under-review(-20)".to_string());
+        }
+
+        // Rule 10 – diff size
+        if self.diff_lines != 0 {
+            let pts = score_diff_lines(self.diff_lines);
+            if pts != 0 {
+                score += pts;
+                reasons.push(format!("small-diff:{}(+{pts})", self.diff_lines));
+            }
+        }
+
+        let (tier, tier_label) = classify(score);
+        self.score = score;
+        self.reasons = reasons;
+        self.tier = tier;
+        self.tier_label = tier_label;
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -325,85 +419,6 @@ pub fn score_patch(patch: &RawPatch, instance: &PatchworkInstance) -> ScoredPatc
     let sob_count = patch.tags.signed_off_by_count;
     let delegated = patch.delegate.is_some();
 
-    let mut score: i32 = 0;
-    let mut reasons: Vec<String> = Vec::new();
-
-    // Rule 1 – version
-    let v = score_version(version);
-    if v != 0 {
-        score += v;
-        reasons.push(format!("v{version}(+{v})"));
-    }
-
-    // Rule 2 – fix keywords
-    if fix_keyword {
-        score += 45;
-        reasons.push("fix(+45)".to_string());
-    }
-
-    // Rule 2b – new/rewrite/add test
-    if new_test {
-        score += 15;
-        reasons.push("new-test(+15)".to_string());
-    }
-
-    // Rule 3 – age
-    let a = score_age(days);
-    if a != 0 {
-        score += a;
-        reasons.push(format!("age:{days}d(+{a})"));
-    }
-
-    // Rule 4 – RFC
-    if rfc {
-        score -= 25;
-        reasons.push("RFC(-25)".to_string());
-    }
-
-    // Rule 5 – lib/infra
-    if lib_pts != 0 {
-        score += lib_pts;
-        reasons.push(format!("lib(+{lib_pts})"));
-    }
-
-    // Rule 6 – series size
-    let s = score_series(series_size);
-    if s != 0 {
-        score += s;
-        reasons.push(format!("series:{series_size}({s:+})"));
-    }
-
-    // Rule 7 – review tags
-    if reviewed >= 1 {
-        score += 20;
-        reasons.push("Reviewed-by(+20)".to_string());
-    }
-    if acked >= 1 {
-        score += 10;
-        reasons.push("Acked-by(+10)".to_string());
-    }
-
-    // Rule 7b – SOB count
-    let sob_pts = score_sob(sob_count);
-    if sob_pts != 0 {
-        score += sob_pts;
-        reasons.push(format!("SOB:{sob_count}(+{sob_pts})"));
-    }
-
-    // Rule 8 – delegated
-    if delegated {
-        score -= 10;
-        reasons.push("delegated(-10)".to_string());
-    }
-
-    // Rule 9 – state
-    if state == "under-review" {
-        score -= 20;
-        reasons.push("under-review(-20)".to_string());
-    }
-
-    let (tier, tier_label) = classify(score);
-
     let url = patch.web_url.clone().unwrap_or_else(|| {
         let base_web = instance.url.trim_end_matches("/api");
         format!(
@@ -412,7 +427,7 @@ pub fn score_patch(patch: &RawPatch, instance: &PatchworkInstance) -> ScoredPatc
         )
     });
 
-    ScoredPatch {
+    let mut scored = ScoredPatch {
         project: instance.project.clone(),
         label: instance.display_name().to_string(),
         id: patch.id,
@@ -436,13 +451,15 @@ pub fn score_patch(patch: &RawPatch, instance: &PatchworkInstance) -> ScoredPatc
         checks_passed: 0,
         checks_failed: 0,
         checks_total: 0,
-        score,
-        reasons,
+        score: 0,
+        reasons: Vec::new(),
         url,
-        tier,
-        tier_label,
+        tier: "P5",
+        tier_label: "DEFER",
         superseded: false,
-    }
+    };
+    scored.recalculate_score();
+    scored
 }
 
 // ---------------------------------------------------------------------------
@@ -612,5 +629,49 @@ mod tests {
         assert!(patches[0].superseded);
         assert!(!patches[1].superseded);
         assert!(!patches[2].superseded);
+    }
+
+    #[test]
+    fn test_notes_with_reviewed_by() {
+        let mut patch = ScoredPatch {
+            project: "ltp".to_string(),
+            label: "LTP".to_string(),
+            id: 1,
+            name: "[PATCH] syscalls/read01: fix bug".to_string(),
+            submitter: "Alice".to_string(),
+            date: "2026-01-01T00:00:00Z".to_string(),
+            days: 10,
+            state: "new".to_string(),
+            version: 1,
+            rfc: false,
+            series_id: None,
+            series_size: 1,
+            reviewed: 0,
+            acked: 0,
+            delegated: false,
+            fix_keyword: true,
+            new_test: false,
+            sob_count: 1,
+            lib_pts: 0,
+            diff_lines: 0,
+            checks_passed: 0,
+            checks_failed: 0,
+            checks_total: 0,
+            score: 0,
+            reasons: vec![],
+            url: "http://example.com/1".to_string(),
+            tier: "P3",
+            tier_label: "NORMAL",
+            superseded: false,
+        };
+
+        assert_eq!(patch.notes(), "—");
+
+        patch.reviewed = 1;
+        assert_eq!(patch.notes(), "Reviewed-by");
+
+        patch.recalculate_score();
+        assert!(patch.reasons.contains(&"Reviewed-by(+20)".to_string()));
+        assert!(patch.score >= 20);
     }
 }
